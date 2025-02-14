@@ -1,0 +1,9 @@
+alias l3d='jeffreyke/momentum-lab-pytorch3d'
+alias dpsa="docker ps -a"
+alias dli='docker images'
+alias drmi='docker rmi'
+alias ebash='vim ~/.bashrc'
+alias fresh='source ~/.bashrc'
+alias laa='vim ~/.bash_aliases'
+alias efunc='vim ~/.functions.sh'
+alias vlr='source ~/repo/scripts/vlr'
