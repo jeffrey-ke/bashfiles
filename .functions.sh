@@ -144,3 +144,22 @@ gp() {
 	 echo "Pushing to $remote/$branch..."
 	 git push "$remote" "$branch"
 }
+gig() {
+    # Check if a line was provided
+    if [ -z "$1" ]; then
+        echo "Usage: gig <line to add>"
+        return 1
+    fi
+
+    local line="$1"
+    # Ensure .gitignore exists
+    touch .gitignore
+
+    # Check if the exact line already exists in .gitignore
+    if grep -Fxq "$line" .gitignore; then
+        echo "Line already exists in .gitignore"
+    else
+        echo "$line" >> .gitignore
+        echo "Line added to .gitignore"
+    fi
+}
