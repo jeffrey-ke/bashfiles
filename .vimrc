@@ -6,5 +6,9 @@ nnoremap <Space>h <C-w>h
 nnoremap <Space>l <C-w>l
 nnoremap <Space>j <C-w>j
 nnoremap <Space>k <C-w>k
-tnoremap <Esc> <C-\><C-n>:hide<CR>
+tnoremap <Esc> <C-\><C-n>
+colorscheme desert
+set ttimeoutlen=10
+let g:netrw_liststyle=3
+nnoremap <Space>b :NERDTree<CR>
 
