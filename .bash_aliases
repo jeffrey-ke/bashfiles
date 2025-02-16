@@ -1,4 +1,4 @@
-alias l3d='jeffreyke/momentum-lab-pytorch3d'
+alias l3d='source ~/repo/scripts/l3d'
 alias dpsa="docker ps -a"
 alias dli='docker images'
 alias drmi='docker rmi'
@@ -7,3 +7,7 @@ alias fresh='source ~/.bashrc'
 alias laa='vim ~/.bash_aliases'
 alias efunc='vim ~/.functions.sh'
 alias vlr='source ~/repo/scripts/vlr'
+alias ghis='git log --graph --oneline --decorate --all'
+alias gsh='git show'
+alias gdiff='git diff'
+
