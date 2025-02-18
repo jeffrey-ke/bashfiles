@@ -10,5 +10,10 @@ tnoremap <Esc> <C-\><C-n>
 colorscheme desert
 set ttimeoutlen=10
 let g:netrw_liststyle=3
-nnoremap <Space>b :NERDTree<CR>
+nnoremap <Space>b :NERDTreeToggle<CR>
+call plug#begin()
+Plug 'ryanoasis/vim-devicons'
+call plug#end()
+set encoding=utf8
+set guifont=AurulentSansMNerdFontMono-Regular\ Nerd\ Font\ 11
 
