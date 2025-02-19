@@ -16,4 +16,17 @@ Plug 'ryanoasis/vim-devicons'
 call plug#end()
 set encoding=utf8
 set guifont=AurulentSansMNerdFontMono-Regular\ Nerd\ Font\ 11
+let NERDTreeShowLineNumbers=1
+autocmd FileType nerdtree setlocal relativenumber
+autocmd BufReadPost * if line("'\"") > 0 && line("'\"") <= line("$") | execute "normal! g`\"" | endif
+nnoremap <Space>d <C-d>
+nnoremap <Space>u <C-u>
+augroup CursorLine
+    autocmd!
+    autocmd VimEnter,WinEnter,BufWinEnter * setlocal cursorline
+    autocmd WinLeave * setlocal nocursorline
+augroup END
+hi StatusLine   ctermfg=15  guifg=#ffffff ctermbg=239 guibg=#4e4e4e cterm=bold gui=bold
+hi StatusLineNC ctermfg=249 guifg=#b2b2b2 ctermbg=237 guibg=#3a3a3a cterm=none gui=none
+set cursorline
 
