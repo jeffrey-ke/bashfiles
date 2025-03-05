@@ -11,3 +11,4 @@ alias ghis='git log --graph --oneline --decorate --all'
 alias gsh='git show'
 alias gdiff='git diff'
 
+alias p3='python3'
