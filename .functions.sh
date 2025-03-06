@@ -120,6 +120,8 @@ gso() {
         git remote add origin "$1"
         echo "Added origin remote with URL: $1"
     fi
+    git branch --set-upstream-to=origin/main
+
 }
 gs() {
 git status
