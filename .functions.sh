@@ -174,3 +174,8 @@ mcd(){
         cd "$1"
     fi
 }
+unzipthis(){
+    for file in *.zip; do
+        unzip "$file"
+    done
+}

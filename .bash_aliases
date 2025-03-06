@@ -12,3 +12,4 @@ alias gsh='git show'
 alias gdiff='git diff'
 
 alias p3='python3'
+alias so='source'
