@@ -8,8 +8,11 @@ nnoremap <Space>l <C-w>l
 nnoremap <Space>j <C-w>j
 nnoremap <Space>k <C-w>k
 tnoremap <Esc> <C-\><C-n>
-colorscheme desert
-set ttimeoutlen=10
+colorscheme sorbet
+set foldmethod=indent
+set foldnestmax=3
+set foldlevelstart=99
+set ttimeoutlen=2
 let g:netrw_liststyle=3
 nnoremap <Space>b :NERDTreeToggle<CR>
 
@@ -35,4 +38,23 @@ hi StatusLineNC ctermfg=249 guifg=#b2b2b2 ctermbg=237 guibg=#3a3a3a cterm=none g
 set cursorline
 nnoremap <C-p> :Files<CR>
 nnoremap <Space><Space> <C-^>
+function! ToggleTerminal()
+  if exists("t:terminal_buf") && bufexists(t:terminal_buf)
+    " If terminal buffer exists, check if it's visible
+    let l:winid = bufwinnr(t:terminal_buf)
+    if l:winid != -1
+      " Hide the terminal buffer instead of closing it
+      execute "hide"
+    else
+      " Reopen the terminal buffer in a horizontal split
+      execute "botright sbuffer " . t:terminal_buf
+    endif
+  else
+    " Open a new terminal and store its buffer number
+    botright new
+    execute "terminal"
+    let t:terminal_buf = bufnr('%')
+  endif
+endfunction
 
+nnoremap <Space>t :call ToggleTerminal()<CR>
