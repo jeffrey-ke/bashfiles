@@ -7,27 +7,26 @@ nnoremap <Space>h <C-w>h
 nnoremap <Space>l <C-w>l
 nnoremap <Space>j <C-w>j
 nnoremap <Space>k <C-w>k
+nnoremap <Space>d <C-d>
+nnoremap <Space>u <C-u>
 tnoremap <Esc> <C-\><C-n>
+nnoremap , za
 colorscheme sorbet
 set foldmethod=indent
 set foldnestmax=3
 set foldlevelstart=99
-set ttimeoutlen=2
+set ttimeoutlen=50
 let g:netrw_liststyle=3
 nnoremap <Space>b :NERDTreeToggle<CR>
 
 call plug#begin()
 Plug 'ryanoasis/vim-devicons'
-Plug 'junegunn/fzf', { 'do': { -> fzf#install() } }
-Plug 'junegunn/fzf.vim'
 call plug#end()
 set encoding=utf8
 set guifont=AurulentSansMNerdFontMono-Regular\ Nerd\ Font\ 11
 let NERDTreeShowLineNumbers=1
 autocmd FileType nerdtree setlocal relativenumber
 autocmd BufReadPost * if line("'\"") > 0 && line("'\"") <= line("$") | execute "normal! g`\"" | endif
-nnoremap <Space>d <C-d>
-nnoremap <Space>u <C-u>
 augroup CursorLine
     autocmd!
     autocmd VimEnter,WinEnter,BufWinEnter * setlocal cursorline
@@ -36,8 +35,6 @@ augroup END
 hi StatusLine   ctermfg=15  guifg=#ffffff ctermbg=239 guibg=#4e4e4e cterm=bold gui=bold
 hi StatusLineNC ctermfg=249 guifg=#b2b2b2 ctermbg=237 guibg=#3a3a3a cterm=none gui=none
 set cursorline
-nnoremap <C-p> :Files<CR>
-nnoremap <Space><Space> <C-^>
 function! ToggleTerminal()
   if exists("t:terminal_buf") && bufexists(t:terminal_buf)
     " If terminal buffer exists, check if it's visible
