@@ -3,6 +3,7 @@ set tabstop=4       " Number of spaces that a <Tab> in the file counts for
 set softtabstop=4
 set shiftwidth=4    " Number of spaces to use for each step of autoindent
 set expandtab       " Convert tabs to spaces
+" keymaps
 nnoremap <Space>h <C-w>h
 nnoremap <Space>l <C-w>l
 nnoremap <Space>j <C-w>j
@@ -10,23 +11,32 @@ nnoremap <Space>k <C-w>k
 nnoremap <Space>d <C-d>
 nnoremap <Space>u <C-u>
 tnoremap <Esc> <C-\><C-n>
+nnoremap <Space>b :NERDTreeToggle<CR>
 nnoremap , za
+nnoremap <Space>t :call ToggleTerminal()<CR>
+" color scheme
 colorscheme sorbet
+" code folding
 set foldmethod=indent
 set foldnestmax=3
 set foldlevelstart=99
+" terminal keymap timeout
 set ttimeoutlen=50
+" ???
 let g:netrw_liststyle=3
-nnoremap <Space>b :NERDTreeToggle<CR>
-
+" installing plugins
 call plug#begin()
 Plug 'ryanoasis/vim-devicons'
 call plug#end()
+" fonts
 set encoding=utf8
 set guifont=AurulentSansMNerdFontMono-Regular\ Nerd\ Font\ 11
+" nerdtree config
 let NERDTreeShowLineNumbers=1
 autocmd FileType nerdtree setlocal relativenumber
+" automatically jump to last line edited on opening a file
 autocmd BufReadPost * if line("'\"") > 0 && line("'\"") <= line("$") | execute "normal! g`\"" | endif
+" cursorline nice
 augroup CursorLine
     autocmd!
     autocmd VimEnter,WinEnter,BufWinEnter * setlocal cursorline
@@ -35,6 +45,7 @@ augroup END
 hi StatusLine   ctermfg=15  guifg=#ffffff ctermbg=239 guibg=#4e4e4e cterm=bold gui=bold
 hi StatusLineNC ctermfg=249 guifg=#b2b2b2 ctermbg=237 guibg=#3a3a3a cterm=none gui=none
 set cursorline
+" for vs code like persistent terminals
 function! ToggleTerminal()
   if exists("t:terminal_buf") && bufexists(t:terminal_buf)
     " If terminal buffer exists, check if it's visible
@@ -48,10 +59,8 @@ function! ToggleTerminal()
     endif
   else
     " Open a new terminal and store its buffer number
-    botright new
-    execute "terminal"
+    botright terminal
     let t:terminal_buf = bufnr('%')
   endif
 endfunction
 
-nnoremap <Space>t :call ToggleTerminal()<CR>
