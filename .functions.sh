@@ -53,7 +53,18 @@ drun() {
         docker_path="$2"
     fi
 
-    docker run --rm -it --privileged --gpus all --device=/dev/bus/usb -v "$current_dir:$docker_path" -v "/dev/bus/usb:/dev/bus/usb" "$image"
+    docker run --rm -it --privileged \
+        --gpus all \
+        --device=/dev/bus/usb \
+        -e DISPLAY=":2"\
+        -e QT_DEBUG_PLUGINS=1 \
+        --network host \
+        -v $XAUTHORITY:$XAUTHORITY \
+        -e XAUTHORITY \
+        -v "$current_dir:$docker_path" \
+        -v "/dev/bus/usb:/dev/bus/usb" \
+        -v /tmp/.X11-unix:/tmp/X11-unix \
+        "$image" 
 }
 dsa() {
     if [ -z "$1" ]; then
