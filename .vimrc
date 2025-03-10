@@ -34,5 +34,6 @@ hi StatusLine   ctermfg=15  guifg=#ffffff ctermbg=239 guibg=#4e4e4e cterm=bold g
 hi StatusLineNC ctermfg=249 guifg=#b2b2b2 ctermbg=237 guibg=#3a3a3a cterm=none gui=none
 set cursorline
 nnoremap <C-p> :Files<CR>
+" test test
 nnoremap <Space><Space> <C-^>
 
