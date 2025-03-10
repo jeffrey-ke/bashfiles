@@ -52,18 +52,19 @@ drun() {
         echo "Mounting to path: $2"
         docker_path="$2"
     fi
-
+    echo "updated!"
     docker run --rm -it --privileged \
         --gpus all \
         --device=/dev/bus/usb \
-        -e DISPLAY=":2"\
+        -e DISPLAY=$DISPLAY\
         -e QT_DEBUG_PLUGINS=1 \
-        --network host \
+        --network=host \
         -v $XAUTHORITY:$XAUTHORITY \
-        -e XAUTHORITY \
+        -e XAUTHORITY=/tmp/.docker.xauth \
         -v "$current_dir:$docker_path" \
         -v "/dev/bus/usb:/dev/bus/usb" \
         -v /tmp/.X11-unix:/tmp/X11-unix \
+        -v /tmp/.docker.xauth:/tmp/.docker.xauth \
         "$image" 
 }
 dsa() {
