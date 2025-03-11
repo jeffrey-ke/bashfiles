@@ -52,6 +52,7 @@ function! ToggleTerminal()
     let l:winid = bufwinnr(t:terminal_buf)
     if l:winid != -1
       " Hide the terminal buffer instead of closing it
+      execute l:winid . "wincmd w"
       execute "hide"
     else
       " Reopen the terminal buffer in a horizontal split
