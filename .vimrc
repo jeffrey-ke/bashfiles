@@ -14,6 +14,8 @@ tnoremap <Esc> <C-\><C-n>
 nnoremap <Space>b :NERDTreeToggle<CR>
 nnoremap , za
 nnoremap <Space>t :call ToggleTerminal()<CR>
+nnoremap <Space><Space> <C-^>
+inoremap <Tab> <C-R>=Tab_Or_Complete()<CR>
 " color scheme
 colorscheme sorbet
 " code folding
@@ -27,6 +29,7 @@ let g:netrw_liststyle=3
 " installing plugins
 call plug#begin()
 Plug 'ryanoasis/vim-devicons'
+
 call plug#end()
 " fonts
 set encoding=utf8
@@ -64,5 +67,13 @@ function! ToggleTerminal()
     let t:terminal_buf = bufnr('%')
   endif
 endfunction
-
+" tab complete for insert mode function
+function! Tab_Or_Complete()
+  if col('.')>1 && strpart( getline('.'), col('.')-2, 3 ) =~ '^\w'
+    return "\<C-N>"
+  else
+    return "\<Tab>"
+  endif
+endfunction
+set dictionary="/usr/dict/words"
 
