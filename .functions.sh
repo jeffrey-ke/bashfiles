@@ -52,6 +52,7 @@ drun() {
         echo "Mounting to path: $2"
         docker_path="$2"
     fi
+    xhost +local:
     docker run --rm -it --privileged \
         --gpus all \
         --device=/dev/bus/usb \
