@@ -16,12 +16,13 @@ nnoremap , za
 nnoremap <Space>t :call ToggleTerminal()<CR>
 nnoremap <Space><Space> <C-^>
 inoremap <Tab> <C-R>=Tab_Or_Complete()<CR>
+nnoremap ff :call FoldExceptCursor()<CR>
+set mouse=a
 " color scheme
 colorscheme sorbet
 " code folding
 set foldmethod=indent
 set foldnestmax=3
-set foldlevelstart=99
 " terminal keymap timeout
 set ttimeoutlen=50
 " ???
@@ -39,6 +40,9 @@ let NERDTreeShowLineNumbers=1
 autocmd FileType nerdtree setlocal relativenumber
 " automatically jump to last line edited on opening a file
 autocmd BufReadPost * if line("'\"") > 0 && line("'\"") <= line("$") | execute "normal! g`\"" | endif
+" remember folding
+autocmd BufWinLeave *.* mkview
+autocmd BufWinEnter *.* silent loadview 
 " cursorline nice
 augroup CursorLine
     autocmd!
@@ -76,4 +80,8 @@ function! Tab_Or_Complete()
   endif
 endfunction
 set dictionary="/usr/dict/words"
-
+" folds everything except for where I am
+function! FoldExceptCursor()
+  normal! zM
+  normal! zv
+endfunction
