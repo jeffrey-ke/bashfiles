@@ -163,3 +163,11 @@ gig() {
         echo "Line added to .gitignore"
     fi
 }
+
+mcd() {
+    mkdir -p "$1"
+    if [ -d "$1" ]; then
+        cd "$1"
+    fi
+}
+
