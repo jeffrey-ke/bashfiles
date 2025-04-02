@@ -39,16 +39,33 @@ db() {
     docker image prune -f
 }
 drun() {
-    if [ "$#" -ne 1 ]; then
-	echo "Usage: drun <image>" 
-	echo "This is a function that runs an image and mounts the working directory to /home/ws in the container"
+    if [ "$#" -lt 1 ]; then
+	echo "Usage: drun <image> [<directory in docker filesystem to mount to>]" 
+	echo "This is a function that runs an image and mounts the working directory to /root/ws by default in the container"
 	return 1
     fi
     local image="$1"
 
     local current_dir=$(pwd)
-
-    docker run --rm -it --gpus all -v "$current_dir:/home/ws" "$image"
+    local docker_path="/root/ws"
+    if [ "$#" -eq 2 ]; then
+        echo "Mounting to path: $2"
+        docker_path="$2"
+    fi
+    xhost +local:
+    docker run --rm -it --privileged \
+        --gpus all \
+        --device=/dev/bus/usb \
+        -e DISPLAY=$DISPLAY\
+        -e QT_DEBUG_PLUGINS=1 \
+        --network=host \
+        -v $XAUTHORITY:$XAUTHORITY \
+        -e XAUTHORITY=/tmp/.docker.xauth \
+        -v "$current_dir:$docker_path" \
+        -v "/dev/bus/usb:/dev/bus/usb" \
+        -v /tmp/.X11-unix:/tmp/X11-unix \
+        -v /tmp/.docker.xauth:/tmp/.docker.xauth \
+        "$image" 
 }
 dsa() {
     if [ -z "$1" ]; then
@@ -120,6 +137,8 @@ gso() {
         git remote add origin "$1"
         echo "Added origin remote with URL: $1"
     fi
+    git branch --set-upstream-to=origin/main
+
 }
 gs() {
 git status
@@ -163,11 +182,15 @@ gig() {
         echo "Line added to .gitignore"
     fi
 }
-
-mcd() {
+mcd(){
     mkdir -p "$1"
     if [ -d "$1" ]; then
         cd "$1"
     fi
+}
+unzipthis(){
+    for file in *.zip; do
+        unzip "$file"
+    done
 }
 
