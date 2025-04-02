@@ -14,3 +14,5 @@ alias l3d2='l3d && cd ~/repo/l3d/assignment2'
 
 alias tabcheck='python3 -m tabnanny'
 alias p3='python3'
+alias tn='tmux new -s'
+alias ta='tmux attach'
