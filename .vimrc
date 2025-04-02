@@ -13,6 +13,7 @@ nnoremap <Space>d <C-d>
 nnoremap <Space>u <C-u>
 tnoremap <Esc> <C-\><C-n>
 nnoremap <Space>b :NERDTreeToggle<CR>
+nnoremap , za
 call plug#begin()
 Plug 'ryanoasis/vim-devicons'
 
