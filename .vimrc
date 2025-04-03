@@ -17,6 +17,7 @@ nnoremap <Space>t :call ToggleTerminal()<CR>
 nnoremap <Space><Space> <C-^>
 inoremap <Tab> <C-R>=Tab_Or_Complete()<CR>
 nnoremap ff :call FoldExceptCursor()<CR>
+nnoremap <Space>a :Ack 
 set mouse=a
 " color scheme
 colorscheme sorbet
