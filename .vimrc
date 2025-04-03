@@ -47,7 +47,14 @@ let g:netrw_liststyle=3
 call plug#begin()
 Plug 'ryanoasis/vim-devicons'
 Plug 'easymotion/vim-easymotion'
+Plug 'ctrlpvim/ctrlp.vim'
+Plug 'mileszs/ack.vim'
 call plug#end()
+" ctrlp options
+let g:ctrlp_map = '<c-p>'
+let g:ctrlp_cmd = 'CtrlP'
+let g:ctrlp_working_path_mode = 'ra'
+
 " fonts
 set encoding=utf8
 set guifont=AurulentSansMNerdFontMono-Regular\ Nerd\ Font\ 11
