@@ -24,3 +24,6 @@ alias cuda1='export CUDA_VISIBLE_DEVICES=1'
 alias l3d4='conda activate learning3d && cd /home/jeffk/repo/l3d/assignment4'
 alias sonic='cd /home/jeffk/repo/mast3r_telepresence'
 alias gundo='git reset --soft HEAD~1'
+
+alias l3d5='conda activate learning3d && cd /home/jeffk/repo/l3d/assignment5'
+alias gap='git add -p '
