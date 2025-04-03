@@ -10,7 +10,7 @@ nnoremap <Space>j <C-w>j
 nnoremap <Space>k <C-w>k
 nnoremap <Space>d <C-d>
 nnoremap <Space>u <C-u>
-tnoremap <Esc> <C-\><C-n>
+tnoremap <Esc><Esc> <C-\><C-n>
 nnoremap <Space>b :NERDTreeToggle<CR>
 nnoremap , za
 nnoremap <Space>t :call ToggleTerminal()<CR>
