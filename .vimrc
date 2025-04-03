@@ -18,7 +18,13 @@ nnoremap <Space><Space> <C-^>
 inoremap <Tab> <C-R>=Tab_Or_Complete()<CR>
 nnoremap ff :call FoldExceptCursor()<CR>
 nnoremap <Space>a :Ack 
+map s <Plug>(easymotion-s)
 set mouse=a
+" Easymotion stuff
+let g:EasyMotion_do_mapping = 0 " Disable default mappings
+
+
+
 " color scheme
 colorscheme sorbet
 " code folding
@@ -31,7 +37,7 @@ let g:netrw_liststyle=3
 " installing plugins
 call plug#begin()
 Plug 'ryanoasis/vim-devicons'
-
+Plug 'easymotion/vim-easymotion'
 call plug#end()
 " fonts
 set encoding=utf8
