@@ -20,10 +20,19 @@ nnoremap ff :call FoldExceptCursor()<CR>
 nnoremap <Space>a :Ack 
 map s <Plug>(easymotion-s)
 set mouse=a
+" This setting makes search case-insensitive when all characters in the string
+" being searched are lowercase. However, the search becomes case-sensitive if
+" it contains any capital letters. This makes searching more convenient.
+set ignorecase
+set smartcase
+" For status lines
+set laststatus=2
 " Easymotion stuff
 let g:EasyMotion_do_mapping = 0 " Disable default mappings
 
 
+" Enable searching as you type, rather than waiting till you press enter.
+set incsearch
 
 " color scheme
 colorscheme sorbet
