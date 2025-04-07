@@ -27,3 +27,5 @@ alias gundo='git reset --soft HEAD~1'
 
 alias l3d5='conda activate learning3d && cd /home/jeffk/repo/l3d/assignment5'
 alias gap='git add -p '
+alias project='conda activate project && cd ~/repo/l3d/project'
+alias condivate='conda activate '
