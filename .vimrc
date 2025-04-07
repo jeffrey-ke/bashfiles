@@ -50,7 +50,10 @@ Plug 'ryanoasis/vim-devicons'
 Plug 'easymotion/vim-easymotion'
 Plug 'ctrlpvim/ctrlp.vim'
 Plug 'mileszs/ack.vim'
+Plug 'dense-analysis/ale'
+Plug 'tpope/vim-commentary'
 call plug#end()
+filetype plugin indent on
 " ctrlp options
 let g:ctrlp_map = '<c-p>'
 let g:ctrlp_cmd = 'CtrlP'
