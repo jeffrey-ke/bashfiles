@@ -29,3 +29,5 @@ alias l3d5='conda activate learning3d && cd /home/jeffk/repo/l3d/assignment5'
 alias gap='git add -p '
 alias project='conda activate project && cd ~/repo/l3d/project'
 alias condivate='conda activate '
+alias jutil='cd /home/jeffk/repo/l3d/jutils'
+alias dp3="conda activate dp3 && cd ~/repo/dp3 && source sourceme.sh"
