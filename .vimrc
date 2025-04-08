@@ -138,3 +138,26 @@ function! ToggleWrap()
   endif
 endfunction
 map <leader>w :call ToggleWrap()<CR>
+" Define a function that force-closes terminal buffers and then quits Vim.
+function! WriteAndForceQuitTerm()
+  " First, write all changes in non-terminal buffers.
+  wall
+
+  " Now, force-delete all terminal buffers.
+  for buf in getbufinfo({'buflisted': 1})
+    if getbufvar(buf.bufnr, '&buftype') ==# 'terminal'
+      execute 'silent! bdelete! ' . buf.bufnr
+    endif
+  endfor
+
+  " Finally, quit all.
+  qa
+endfunction
+
+" Create a command for it
+command! WqaTermForce call WriteAndForceQuitTerm()
+
+" Optional: remap :wqa to your function
+cabbrev wqa WqaTermForce
+cabbrev wq WqaTermForce
+
