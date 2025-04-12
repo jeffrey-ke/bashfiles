@@ -54,6 +54,7 @@ Plug 'ctrlpvim/ctrlp.vim'
 Plug 'mileszs/ack.vim'
 Plug 'dense-analysis/ale'
 Plug 'tpope/vim-commentary'
+Plug 'tpope/vim-fugitive'
 call plug#end()
 filetype plugin indent on
 " ctrlp options
@@ -162,5 +163,4 @@ command! WqaTermForce call WriteAndForceQuitTerm()
 
 " Optional: remap :wqa to your function
 cabbrev wqa WqaTermForce
-cabbrev wq WqaTermForce
 
