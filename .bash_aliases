@@ -33,3 +33,7 @@ alias jutil='cd /home/jeffk/repo/l3d/jutils'
 alias dp3="conda activate dp3 && cd ~/repo/dp3 && source sourceme.sh"
 alias condivate='conda activate'
 alias du='du -h'
+alias pdb='python3 -m ipdb'
+alias vlr3='conda activate vlr && cd ~/repo/vlr/hw3'
+alias proj='conda activate vlr && cd ~/repo/vlr/proj'
+alias clc='clear'
