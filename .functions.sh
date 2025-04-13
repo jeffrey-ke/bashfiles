@@ -151,8 +151,7 @@ ga() {
 
 gc() {
 	if [ -z "$1" ]; then
-		echo "Error: Commit message is required." >&2
-		return 1
+        git commit
 	fi
 	git commit -m "$1"
 }
