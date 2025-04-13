@@ -49,12 +49,12 @@ let g:netrw_liststyle=3
 " installing plugins
 call plug#begin()
 Plug 'ryanoasis/vim-devicons'
-Plug 'easymotion/vim-easymotion'
 Plug 'ctrlpvim/ctrlp.vim'
 Plug 'mileszs/ack.vim'
 Plug 'dense-analysis/ale'
 Plug 'tpope/vim-commentary'
 Plug 'tpope/vim-fugitive'
+Plug 'vim-airline/vim-airline'
 call plug#end()
 filetype plugin indent on
 " ctrlp options
@@ -163,4 +163,5 @@ command! WqaTermForce call WriteAndForceQuitTerm()
 
 " Optional: remap :wqa to your function
 cabbrev wqa WqaTermForce
+let g:airline#extensions#tabline#enabled = 1
 
