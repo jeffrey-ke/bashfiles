@@ -163,3 +163,7 @@ let g:airline#extensions#tabline#enabled = 1
 if executable('rg')
   set grepprg=rg\ --vimgrep
 endif
+let g:airline#extensions#ale#enabled = 1
+let g:airline#extensions#branch#enabled = 1    " turns it on
+" ~/.vimrc  ── works in both Vim 8 and Neovim
+set hidden
