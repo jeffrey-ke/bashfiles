@@ -1,0 +1,11 @@
+[MASTER]
+good-names=LoRA
+disable=
+    C0114, 
+    C0115,
+    C0116,
+    E0401,
+    C0413,
+    E0611,
+    C0303
+
