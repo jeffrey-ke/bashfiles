@@ -13,13 +13,12 @@ nnoremap <Space>d <C-d>
 nnoremap <Space>u <C-u>
 tnoremap <Esc><Esc> <C-\><C-n>
 nnoremap <Space>b :NERDTreeToggle<CR>
-nnoremap , za
 nnoremap <Space>t :call ToggleTerminal()<CR>
 nnoremap <Space><Space> <C-^>
 inoremap <Tab> <C-R>=Tab_Or_Complete()<CR>
 nnoremap ff :call FoldExceptCursor()<CR>
 nnoremap <Space>a :Ack 
-map s <Plug>(easymotion-s)
+command! AT ALEToggle
 set mouse=a
 " This setting makes search case-insensitive when all characters in the string
 " being searched are lowercase. However, the search becomes case-sensitive if
@@ -28,9 +27,6 @@ set ignorecase
 set smartcase
 " For status lines
 set laststatus=2
-" Easymotion stuff
-let g:EasyMotion_do_mapping = 0 " Disable default mappings
-
 
 " Enable searching as you type, rather than waiting till you press enter.
 set incsearch
@@ -50,7 +46,6 @@ let g:netrw_liststyle=3
 call plug#begin()
 Plug 'ryanoasis/vim-devicons'
 Plug 'ctrlpvim/ctrlp.vim'
-Plug 'mileszs/ack.vim'
 Plug 'dense-analysis/ale'
 Plug 'tpope/vim-commentary'
 Plug 'tpope/vim-fugitive'
