@@ -159,4 +159,7 @@ command! WqaTermForce call WriteAndForceQuitTerm()
 " Optional: remap :wqa to your function
 cabbrev wqa WqaTermForce
 let g:airline#extensions#tabline#enabled = 1
-
+" for ripgrep
+if executable('rg')
+  set grepprg=rg\ --vimgrep
+endif
