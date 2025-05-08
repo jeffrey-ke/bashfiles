@@ -1,0 +1,15 @@
+[alias]
+    co = checkout
+    br = branch
+
+[user]
+	email = jke3@cs.cmu.edu
+	name = jeff
+[pull]
+	rebase = false
+[diff]
+	tool = vimdiff
+[difftool]
+	prompt = false
+[merge]
+	tool = vimdiff
