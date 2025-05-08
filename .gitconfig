@@ -1,6 +1,8 @@
 [alias]
     co = checkout
     br = branch
+    a  = add
+
 
 [user]
 	email = jke3@cs.cmu.edu
