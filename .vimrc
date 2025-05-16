@@ -32,7 +32,7 @@ set laststatus=2
 set incsearch
 
 " color scheme
-colorscheme sorbet
+colorscheme everforest
 " code folding
 set foldmethod=indent
 set foldnestmax=3
@@ -51,6 +51,7 @@ Plug 'tpope/vim-commentary'
 Plug 'preservim/nerdtree'
 Plug 'tpope/vim-fugitive'
 Plug 'vim-airline/vim-airline'
+Plug 'sainnhe/everforest'
 call plug#end()
 filetype plugin indent on
 " ctrlp options
