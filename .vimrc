@@ -31,8 +31,6 @@ set laststatus=2
 " Enable searching as you type, rather than waiting till you press enter.
 set incsearch
 
-" color scheme
-colorscheme everforest
 " code folding
 set foldmethod=indent
 set foldnestmax=3
@@ -53,6 +51,8 @@ Plug 'tpope/vim-fugitive'
 Plug 'vim-airline/vim-airline'
 Plug 'sainnhe/everforest'
 call plug#end()
+" color scheme
+colorscheme everforest
 filetype plugin indent on
 " ctrlp options
 let g:ctrlp_map = '<c-p>'
