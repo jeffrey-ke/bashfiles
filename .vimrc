@@ -169,3 +169,19 @@ let g:airline#extensions#ale#enabled = 1
 let g:airline#extensions#branch#enabled = 1    " turns it on
 " ~/.vimrc  ── works in both Vim 8 and Neovim
 set hidden
+
+if has('termguicolors')
+  set termguicolors
+endif
+
+" For dark version.
+set background=dark
+
+" Set contrast.
+" This configuration option should be placed before `colorscheme everforest`.
+" Available values: 'hard', 'medium'(default), 'soft'
+let g:everforest_background = 'hard'
+
+" For better performance
+let g:everforest_better_performance = 1
+
