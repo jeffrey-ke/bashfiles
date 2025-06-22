@@ -17,7 +17,12 @@ nnoremap <Space>t :call ToggleTerminal()<CR>
 nnoremap <Space><Space> <C-^>
 inoremap <Tab> <C-R>=Tab_Or_Complete()<CR>
 nnoremap ff :call FoldExceptCursor()<CR>
-nnoremap <Space>a :Ack 
+nnoremap n nzz
+nnoremap N Nzz
+nnoremap * *zz
+nnoremap # #zz
+nnoremap g* g*zz
+nnoremap g# g#zz
 command! AT ALEToggle
 set mouse=a
 " This setting makes search case-insensitive when all characters in the string
@@ -33,7 +38,7 @@ set incsearch
 
 " code folding
 set foldmethod=indent
-set foldnestmax=3
+set foldnestmax=5
 " words now wrap.
 set linebreak
 " terminal keymap timeout
