@@ -9,8 +9,8 @@ nnoremap <Space>h <C-w>h
 nnoremap <Space>l <C-w>l
 nnoremap <Space>j <C-w>j
 nnoremap <Space>k <C-w>k
-nnoremap <Space>d <C-d>
-nnoremap <Space>u <C-u>
+nnoremap <silent> <Space>u :call smooth_scroll#up(&scroll, 15, 1)<CR>
+nnoremap <silent> <Space>d :call smooth_scroll#down(&scroll, 15, 1)<CR>
 tnoremap <Esc><Esc> <C-\><C-n>
 nnoremap <Space>b :NERDTreeToggle<CR>
 nnoremap <Space>t :call ToggleTerminal()<CR>
@@ -50,6 +50,7 @@ Plug 'preservim/nerdtree'
 Plug 'tpope/vim-fugitive'
 Plug 'vim-airline/vim-airline'
 Plug 'sainnhe/everforest'
+Plug 'terryma/vim-smooth-scroll'
 call plug#end()
 " color scheme
 colorscheme everforest
