@@ -203,3 +203,5 @@ endfunction
 command! Bon call <SID>Bon()
 command -nargs=* Glg Git! lg <args>
 
+set splitright
+set wildmenu
