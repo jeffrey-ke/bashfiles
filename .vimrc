@@ -185,4 +185,21 @@ let g:everforest_background = 'hard'
 
 " For better performance
 let g:everforest_better_performance = 1
+let g:ctrlp_working_path_mode = ''
+function! s:Bon() abort
+  let l:keep = bufnr('%')          " buffer we stay in
+  for l:buf in getbufinfo({'buflisted': 1})
+        " Skip the current buffer and any :terminal buffer
+        if l:buf.bufnr == l:keep
+          continue
+        endif
+        if getbufvar(l:buf.bufnr, '&buftype') !=# 'terminal'
+          " Use :bdelete! if you want to wipe even modified files
+          execute 'silent! bdelete' l:buf.bufnr
+        endif
+  endfor
+endfunction
+
+command! Bon call <SID>Bon()
+command -nargs=* Glg Git! lg <args>
 
