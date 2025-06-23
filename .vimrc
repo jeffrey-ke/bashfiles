@@ -210,3 +210,5 @@ command -nargs=* Glg Git! lg <args>
 
 set splitright
 set wildmenu
+
+hi CursorLine guifg=black guibg=#a7c080
