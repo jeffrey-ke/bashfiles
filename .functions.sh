@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/zsh
 
 # Function: db
 # Usage: db <image> <tag>
@@ -144,24 +144,24 @@ gs() {
 git status
 }
 
-ga() {
-	git rm -r --cached -f .
-	git add .
-}
+# ga() {
+# 	git rm -r --cached -f .
+# 	git add .
+# }
 
-gc() {
-	if [ -z "$1" ]; then
-        git commit
-	fi
-	git commit -m "$1"
-}
+# gc() {
+# 	if [ -z "$1" ]; then
+#         git commit
+# 	fi
+# 	git commit -m "$1"
+# }
 
-gp() {
-	 branch=$(git symbolic-ref --short HEAD)
-	 remote=$(git config branch."$branch".remote || echo "origin")
-	 echo "Pushing to $remote/$branch..."
-	 git push "$remote" "$branch"
-}
+# gp() {
+# 	 branch=$(git symbolic-ref --short HEAD)
+# 	 remote=$(git config branch."$branch".remote || echo "origin")
+# 	 echo "Pushing to $remote/$branch..."
+# 	 git push "$remote" "$branch"
+# }
 gig() {
     # Check if a line was provided
     if [ -z "$1" ]; then
