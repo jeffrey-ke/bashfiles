@@ -17,12 +17,7 @@ nnoremap <Space>t :call ToggleTerminal()<CR>
 nnoremap <Space><Space> <C-^>
 inoremap <Tab> <C-R>=Tab_Or_Complete()<CR>
 nnoremap ff :call FoldExceptCursor()<CR>
-nnoremap n nzz
-nnoremap N Nzz
-nnoremap * *zz
-nnoremap # #zz
-nnoremap g* g*zz
-nnoremap g# g#zz
+nnoremap <Space>p '[V']
 command! AT ALEToggle
 set mouse=a
 " This setting makes search case-insensitive when all characters in the string
@@ -38,7 +33,7 @@ set incsearch
 
 " code folding
 set foldmethod=indent
-set foldnestmax=5
+set foldnestmax=6
 " words now wrap.
 set linebreak
 " terminal keymap timeout
@@ -55,10 +50,10 @@ Plug 'preservim/nerdtree'
 Plug 'tpope/vim-fugitive'
 Plug 'vim-airline/vim-airline'
 Plug 'sainnhe/everforest'
+Plug 'ghifarit53/tokyonight-vim'
 Plug 'terryma/vim-smooth-scroll'
 call plug#end()
 " color scheme
-colorscheme everforest
 filetype plugin indent on
 " ctrlp options
 let g:ctrlp_map = '<c-p>'
@@ -187,9 +182,17 @@ set background=dark
 " This configuration option should be placed before `colorscheme everforest`.
 " Available values: 'hard', 'medium'(default), 'soft'
 let g:everforest_background = 'hard'
+colorscheme everforest
 
 " For better performance
 let g:everforest_better_performance = 1
+" set termguicolors
+
+" let g:tokyonight_style = 'storm' " available: night, storm
+" let g:tokyonight_enable_italic = 1
+" colorscheme tokyonight
+" let g:airline_theme = "tokyonight"
+"
 let g:ctrlp_working_path_mode = ''
 function! s:Bon() abort
   let l:keep = bufnr('%')          " buffer we stay in
@@ -207,6 +210,11 @@ endfunction
 
 command! Bon call <SID>Bon()
 command -nargs=* Glg Git! lg <args>
+" Pull the version marked LOCAL (i.e. your working copy)
+command! -nargs=0 LO diffget LOCAL
+
+" Pull the version marked REMOTE (i.e. the incoming change)
+command! -nargs=0 RE diffget REMOTE
 
 set splitright
 set wildmenu
