@@ -1,0 +1,31 @@
+if [[ -f "$HOME/.bash-git-prompt/gitprompt.sh" ]]; then
+  GIT_PROMPT_ONLY_IN_REPO=1
+  source "$HOME/.bash-git-prompt/gitprompt.sh"
+fi
+
+# docker prefix (do it in a post-hook too, or wrap into BASE_PS1 if needed)
+if [[ -e /.dockerenv ]]; then
+  DOCKER_TAG='\[\033[01;31m\][${DOCKER_IMAGE:-docker}]\[\033[00m\] '
+fi
+
+# our post-processor
+_vim_tag_post() {
+  # only if in Vim shell
+  [[ -z $VIM ]] && return
+
+  # add docker tag first if defined and missing
+  if [[ -n $DOCKER_TAG && $PS1 != *"[${DOCKER_IMAGE:-docker}]"* ]]; then
+    PS1="${DOCKER_TAG}${PS1}"
+  fi
+
+  # then add (VIM) if missing
+  [[ $PS1 == *"(VIM)"* ]] && return
+  PS1="${PS1}\[\033[1;35m\](VIM)\[\033[0m\] "
+}
+
+# Safely hook after gitprompt
+if declare -p PROMPT_COMMAND &>/dev/null && [[ $(declare -p PROMPT_COMMAND) == "declare -a"* ]]; then
+  PROMPT_COMMAND+=('_vim_tag_post')
+else
+  PROMPT_COMMAND="${PROMPT_COMMAND:+$PROMPT_COMMAND;}_vim_tag_post"
+fi
