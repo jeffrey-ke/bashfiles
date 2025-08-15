@@ -18,6 +18,12 @@ nnoremap <Space><Space> <C-^>
 inoremap <Tab> <C-R>=Tab_Or_Complete()<CR>
 nnoremap ff :call FoldExceptCursor()<CR>
 nnoremap <Space>p '[V']
+nnoremap $ ^
+nnoremap ^ $
+vnoremap $ ^
+vnoremap ^ $
+
+
 command! AT ALEToggle
 set mouse=a
 " This setting makes search case-insensitive when all characters in the string
@@ -52,6 +58,7 @@ Plug 'vim-airline/vim-airline'
 Plug 'sainnhe/everforest'
 Plug 'ghifarit53/tokyonight-vim'
 Plug 'terryma/vim-smooth-scroll'
+Plug 'heavenshell/vim-pydocstring', { 'do': 'make install', 'for': 'python' }
 call plug#end()
 " color scheme
 filetype plugin indent on
@@ -220,3 +227,5 @@ set splitright
 set wildmenu
 
 hi CursorLine guifg=black guibg=#a7c080
+" let g:pydocstring_doq_path = '/home/jeffrey.ke/miniconda3/envs/twin/bin/doq'
+cnoremap :s :s/\v
