@@ -1,0 +1,20 @@
+[user]
+	name = Jeff
+	email = jeffrey.ke@plus.ai
+[diff]
+	tool = vimdiff
+	algorithm = patience
+[merge]
+	tool = vimdiff
+[git]
+	editor = vim
+[difftool]
+	prompt = false
+[alias]
+    lg = log --graph --pretty=format:'%Cred%h%Creset - %Cgreen(%ad)%C(yellow)%d%Creset %s %C(bold blue)<%an>%Creset' --abbrev-commit --date=local
+    rc = rebase --continue
+    mt = mergetool
+    co = checkout
+
+[mergetool]
+	prompt = false
