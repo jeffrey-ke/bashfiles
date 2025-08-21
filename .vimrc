@@ -22,6 +22,8 @@ nnoremap $ ^
 nnoremap ^ $
 vnoremap $ ^
 vnoremap ^ $
+onoremap $ ^
+onoremap ^ $
 
 
 command! AT ALEToggle
