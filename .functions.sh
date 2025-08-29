@@ -193,3 +193,13 @@ unzipthis(){
     done
 }
 
+dpush(){
+    if [[ $# -lt 2 ]]; then
+        echo "Needs two args: image and tag"
+        exit 1
+    fi
+    image=$1
+    tag=$2
+    docker tag $image:$tag jeffreyke/$image:$tag
+    docker push jeffreyke/$image:$tag
+}
