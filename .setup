@@ -25,9 +25,9 @@ if [[ "$CURRENT_SHELL" == "bash" ]]; then
     [[ -z $VIM ]] && return
 
     # add docker tag first if defined and missing
-    if [[ -n $DOCKER_TAG && $PS1 != *"[${DOCKER_IMAGE:-docker}]"* ]]; then
-      PS1="${DOCKER_TAG}${PS1}"
-    fi
+    # if [[ -n $DOCKER_TAG && $PS1 != *"[${DOCKER_IMAGE:-docker}]"* ]]; then
+    #   PS1="${DOCKER_TAG}${PS1}"
+    # fi
 
     # then add (VIM) if missing
     [[ $PS1 == *"(VIM)"* ]] && return
@@ -41,35 +41,36 @@ if [[ "$CURRENT_SHELL" == "bash" ]]; then
     PROMPT_COMMAND="${PROMPT_COMMAND:+$PROMPT_COMMAND;}_vim_tag_post"
   fi
 
-elif [[ "$CURRENT_SHELL" == "zsh" ]]; then
-  # Zsh-specific setup
-  autoload -Uz vcs_info
-  precmd_vcs_info() { vcs_info }
-  precmd_functions+=( precmd_vcs_info )
-  setopt prompt_subst
-  zstyle ':vcs_info:git:*' formats ' (%b)'
-  zstyle ':vcs_info:*' enable git
-
-  # docker prefix for zsh
-  if [[ -e /.dockerenv ]]; then
-    DOCKER_TAG='%F{red}[${DOCKER_IMAGE:-docker}]%f '
-  fi
-
-  # zsh post-processor
-  _vim_tag_post_zsh() {
-    # only if in Vim shell
-    [[ -z $VIM ]] && return
-
-    # add docker tag first if defined and missing
-    if [[ -n $DOCKER_TAG && $PS1 != *"[${DOCKER_IMAGE:-docker}]"* ]]; then
-      PS1="${DOCKER_TAG}${PS1}"
-    fi
-
-    # then add (VIM) if missing
-    [[ $PS1 == *"(VIM)"* ]] && return
-    PS1="${PS1}%F{magenta}(VIM)%f "
-  }
-
-  # Hook into zsh precmd
-  precmd_functions+=( _vim_tag_post_zsh )
 fi
+# elif [[ "$CURRENT_SHELL" == "zsh" ]]; then
+#   # Zsh-specific setup
+#   autoload -Uz vcs_info
+#   precmd_vcs_info() { vcs_info }
+#   precmd_functions+=( precmd_vcs_info )
+#   setopt prompt_subst
+#   zstyle ':vcs_info:git:*' formats ' (%b)'
+#   zstyle ':vcs_info:*' enable git
+
+#   # docker prefix for zsh
+#   if [[ -e /.dockerenv ]]; then
+#     DOCKER_TAG='%F{red}[${DOCKER_IMAGE:-docker}]%f '
+#   fi
+
+#   # zsh post-processor
+#   _vim_tag_post_zsh() {
+#     # only if in Vim shell
+#     [[ -z $VIM ]] && return
+
+#     # add docker tag first if defined and missing
+#     # if [[ -n $DOCKER_TAG && $PS1 != *"[${DOCKER_IMAGE:-docker}]"* ]]; then
+#     #   PS1="${DOCKER_TAG}${PS1}"
+#     # fi
+
+#     # then add (VIM) if missing
+#     [[ $PS1 == *"(VIM)"* ]] && return
+#     PS1="${PS1}%F{magenta}(VIM)%f "
+#   }
+
+#   # Hook into zsh precmd
+#   precmd_functions+=( _vim_tag_post_zsh )
+# fi
