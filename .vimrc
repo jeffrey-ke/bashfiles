@@ -14,7 +14,7 @@ nnoremap <silent> <Space>d :call smooth_scroll#down(&scroll, 15, 1)<CR>
 tnoremap <Esc><Esc> <C-\><C-n>
 nnoremap <Space>b :NERDTreeToggle<CR>
 nnoremap <Space>t :call ToggleTerminal()<CR>
-nnoremap <Space><Space> <C-^>
+nnoremap <Space><Space> za
 inoremap <Tab> <C-R>=Tab_Or_Complete()<CR>
 nnoremap ff :call FoldExceptCursor()<CR>
 nnoremap <Space>p '[V']
