@@ -203,3 +203,17 @@ dpush(){
     docker tag $image:$tag jeffreyke/$image:$tag
     docker push jeffreyke/$image:$tag
 }
+
+gcvsub(){
+    if [[ $# -lt 2 ]]; then
+        echo "Provide proj dir with trailing / and the number of the assignment as the first 2 arguments"
+        return 1
+    fi
+    proj_dir=$1
+    if [[ $proj_dir != */ ]]; then
+        echo "Add leading slash to first argument"
+        return 1
+    fi
+    proj_num=$2
+    rsync --partial -av --exclude .git $proj_dir jke3@linux.andrew.cmu.edu:/afs/andrew.cmu.edu/course/16/822/www/projects/jke3/proj$proj_num
+}
