@@ -40,7 +40,7 @@ db() {
 }
 drun() {
     if [ "$#" -lt 1 ]; then
-	echo "Usage: drun <image> [<directory in docker filesystem to mount to>]" 
+	echo "Usage: drun <image> [<directory in docker filesystem to mount to>]"
 	echo "This is a function that runs an image and mounts the working directory to /root/ws by default in the container"
 	return 1
     fi
@@ -65,7 +65,7 @@ drun() {
         -v "/dev/bus/usb:/dev/bus/usb" \
         -v /tmp/.X11-unix:/tmp/X11-unix \
         -v /tmp/.docker.xauth:/tmp/.docker.xauth \
-        "$image" 
+        "$image"
 }
 dsa() {
     if [ -z "$1" ]; then
