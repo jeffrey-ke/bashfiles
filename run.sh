@@ -16,6 +16,7 @@ ln -s $cur/.tmux.conf ~/.tmux.conf
 ln -s $cur/.vimrc ~/.vimrc
 ln -s $cur/.bash_vars ~/.bash_vars
 ln -s $cur/.setup ~/.setup
+ln -s $cur/lldbinit ~/.lldbinit
 
 # Add source lines only if they don't already exist
 if ! grep -q 'source "$HOME/.bash_aliases"' ~/$filerc; then
