@@ -1,0 +1,8 @@
+CompileFlags:
+  Add:
+    - "-I/opt/homebrew/include"
+    - "-I/opt/homebrew/include/boost"
+    - "-I/opt/homebrew/include/opencv4"
+    - "-L/opt/homebrew/lib"
+  Remove:
+    - "-W*"  # Disable all warnings for a cleaner experience
