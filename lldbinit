@@ -1,1 +1,5 @@
 settings set target.import-std-module true
+command script import ~/dotfiles/lldb_script/scripts.py
+command script add -f scripts.bcond bcond
+command script add -f scripts.lcond lcond
+settings clear target.process.thread.step-avoid-regexp
