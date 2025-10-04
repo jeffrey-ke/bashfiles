@@ -217,3 +217,17 @@ gcvsub(){
     proj_num=$2
     rsync --partial -av --exclude .git $proj_dir jke3@linux.andrew.cmu.edu:/afs/andrew.cmu.edu/course/16/822/www/projects/jke3/proj$proj_num
 }
+
+icat(){
+    if (( $# < 2 )); then
+        echo "Provide two args: remote name and full path!"
+        return
+    fi
+    if ! command -v imgcat >/dev/null 2>&1; then
+       echo "imgcat doe not exist in this machine!" 
+       return
+    fi
+    remote=$1
+    file=$2
+    ssh $remote "cat $2" | imgcat -W 100%
+}
