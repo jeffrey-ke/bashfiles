@@ -1,17 +1,22 @@
-[alias]
-    co = checkout
-    br = branch
-    a  = add
-
-
 [user]
 	email = jke3@cs.cmu.edu
 	name = jeff
 [pull]
-	rebase = false
+	rebase = true
 [diff]
 	tool = vimdiff
-[difftool]
-	prompt = false
+	algorithm = patience
 [merge]
 	tool = vimdiff
+[git]
+	editor = vim
+[difftool]
+	prompt = false
+[alias]
+    co = checkout
+    br = branch
+    a  = add
+    rc = rebase --continue
+    mt = mergetool
+[mergetool]
+	prompt = false
