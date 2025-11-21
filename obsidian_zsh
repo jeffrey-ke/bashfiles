@@ -1,2 +1,2 @@
 #!/usr/bin/env zsh
-exec /bin/bash -i -c claude
+exec /bin/bash -i -c /Users/jke/.claude/local/claude
