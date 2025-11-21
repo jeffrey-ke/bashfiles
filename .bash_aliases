@@ -65,3 +65,4 @@ alias ghelp='echo "  gcheck              # Verify rclone config
 alias visual='cd ~/repo/visual_servoing && source sourceme.sh'
 alias g++='g++ -std=c++17 -I /opt/homebrew/include -L /opt/homebrew/lib'
 alias envim='cd ~/.config/nvim && nvim init.lua'
+alias clod='claude -p'
