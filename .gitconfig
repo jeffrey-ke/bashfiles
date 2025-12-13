@@ -20,3 +20,9 @@
     mt = mergetool
 [mergetool]
 	prompt = false
+[credential "https://github.com"]
+	helper = 
+	helper = !/home/jeffk/miniconda3/envs/gcv/bin/gh auth git-credential
+[credential "https://gist.github.com"]
+	helper = 
+	helper = !/home/jeffk/miniconda3/envs/gcv/bin/gh auth git-credential
