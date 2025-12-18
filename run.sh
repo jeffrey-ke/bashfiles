@@ -17,6 +17,7 @@ ln -s $cur/.vimrc ~/.vimrc
 # ln -s $cur/.bash_vars ~/.bash_vars
 ln -s $cur/pyrightconfig.json ~/.config/pyright/pyrightconfig.json
 # ln -s $cur/.setup ~/.setup
+ln -s $cur/nvim ~/.config/nvim
 
 # Add source lines only if they don't already exist
 if ! grep -q 'source "$HOME/.bash_aliases"' ~/$filerc; then
