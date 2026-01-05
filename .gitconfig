@@ -26,3 +26,5 @@
 [credential "https://gist.github.com"]
 	helper = 
 	helper = !/home/jeffk/miniconda3/envs/gcv/bin/gh auth git-credential
+[core]
+	editor = vim
