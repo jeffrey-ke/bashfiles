@@ -203,3 +203,124 @@ dpush(){
     docker tag $image:$tag jeffreyke/$image:$tag
     docker push jeffreyke/$image:$tag
 }
+
+# ============================================================================
+# Google Drive rclone functions
+# Setup instructions:
+#   1. Install rclone: sudo apt install rclone
+#   2. Run `gsetup` to configure with encrypted config
+#   3. For headless OAuth, use carbonyl browser: carbonyl https://accounts.google.com
+# ============================================================================
+
+_rclone_password_cmd='read -s -p "rclone password: " p; echo "$p"'
+_gdrive_remote="gdrive"
+_gdrive_default_folder="uploads"
+_gdrive_share_log="$HOME/.gdrive_shares.log"
+
+_rclone_with_password() {
+    rclone --password-command "$_rclone_password_cmd" "$@"
+}
+
+gsetup() {
+    echo "Google Drive rclone setup with encrypted config"
+    echo "================================================"
+    echo ""
+    echo "This will guide you through setting up rclone with an encrypted config."
+    echo ""
+    echo "Steps:"
+    echo "  1. Run: rclone config"
+    echo "  2. Choose 'n' for new remote"
+    echo "  3. Name it: $_gdrive_remote"
+    echo "  4. Choose 'drive' (Google Drive)"
+    echo "  5. Leave client_id and client_secret blank (use rclone's)"
+    echo "  6. Choose scope: 1 (full access)"
+    echo "  7. Leave root_folder_id blank"
+    echo "  8. Leave service_account_file blank"
+    echo "  9. For 'auto config': n (headless server)"
+    echo " 10. Open the provided URL in carbonyl for OAuth"
+    echo " 11. Paste the verification code back"
+    echo " 12. Choose 'n' for team drive"
+    echo " 13. Confirm and quit"
+    echo ""
+    echo "After basic setup, encrypt the config:"
+    echo "  rclone config encryption password"
+    echo ""
+    read -p "Press Enter to start rclone config..."
+    rclone config
+}
+
+gcheck() {
+    echo "Checking rclone Google Drive configuration..."
+
+    if ! command -v rclone &> /dev/null; then
+        echo "ERROR: rclone is not installed"
+        echo "Install with: sudo apt install rclone"
+        return 1
+    fi
+
+    if ! _rclone_with_password listremotes 2>/dev/null | grep -q "^${_gdrive_remote}:$"; then
+        echo "ERROR: Remote '$_gdrive_remote' not configured"
+        echo "Run 'gsetup' to configure"
+        return 1
+    fi
+
+    echo "Testing connection to $_gdrive_remote..."
+    if _rclone_with_password about "${_gdrive_remote}:" &>/dev/null; then
+        echo "SUCCESS: Connected to Google Drive"
+        _rclone_with_password about "${_gdrive_remote}:"
+        return 0
+    else
+        echo "ERROR: Could not connect to Google Drive"
+        echo "Token may be expired - run 'rclone config reconnect ${_gdrive_remote}:'"
+        return 1
+    fi
+}
+
+gls() {
+    local folder="${1:-$_gdrive_default_folder}"
+    _rclone_with_password ls "${_gdrive_remote}:${folder}"
+}
+
+gshare() {
+    if [[ $# -lt 1 ]]; then
+        echo "Usage: gshare <file> [folder]"
+        echo "Uploads file to Google Drive and returns shareable link"
+        echo "Default folder: $_gdrive_default_folder"
+        return 1
+    fi
+
+    local file="$1"
+    local folder="${2:-$_gdrive_default_folder}"
+
+    if [[ ! -f "$file" ]]; then
+        echo "ERROR: File not found: $file"
+        return 1
+    fi
+
+    local filename=$(basename "$file")
+    local dest="${_gdrive_remote}:${folder}/${filename}"
+
+    echo "Uploading $filename to $folder..."
+    if ! _rclone_with_password copy "$file" "${_gdrive_remote}:${folder}/"; then
+        echo "ERROR: Upload failed"
+        return 1
+    fi
+
+    echo "Creating shareable link..."
+    local link
+    link=$(_rclone_with_password link "$dest" 2>&1)
+
+    if [[ $? -ne 0 ]]; then
+        echo "ERROR: Could not create link"
+        echo "$link"
+        return 1
+    fi
+
+    local timestamp=$(date -Iseconds)
+    echo "$timestamp $filename $link" >> "$_gdrive_share_log"
+
+    echo ""
+    echo "SUCCESS: $filename uploaded"
+    echo "Link: $link"
+    echo "(logged to $_gdrive_share_log)"
+}

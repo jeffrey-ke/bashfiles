@@ -1,7 +1,7 @@
 if [[ $SHELL == *"zsh"* ]]; then
-    filerc=".zshrc"
+	filerc=".zshrc"
 elif [[ $SHELL == *"bash"* ]]; then
-    filerc=".bashrc"
+	filerc=".bashrc"
 fi
 alias l3d='source ~/repo/scripts/l3d'
 alias dpsa="docker ps -a"
@@ -54,3 +54,12 @@ alias sgs='conda activate SparseGS && cd ~/repo/SparseGS'
 alias tat='tmux attach -t'
 alias visual='conda activate visual && cd ~/repo/visual_servoing && source sourceme.sh'
 alias envim='cd ~/.config/nvim && nvim init.lua'
+# Google Drive rclone aliases
+alias gdu='rclone --password-command "read -s -p \"rclone password: \" p; echo \"\$p\"" about gdrive:'
+alias glog='cat ~/.gdrive_shares.log'
+alias ghelp='echo "  gcheck              # Verify rclone config
+  gsetup              # Configure rclone with encryption
+  gshare <file>       # Upload and get shareable link
+  gls [folder]        # List files in Drive folder
+  gdu                 # Show Drive quota
+  glog                # View share history"'
