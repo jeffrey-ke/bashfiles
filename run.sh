@@ -1,40 +1,24 @@
 #!/bin/bash
+set -e
 
-if [[ $1 = "bash" ]]; then
-	filerc=".bashrc"
-elif [[ $1 = "zsh" ]]; then
-	filerc=".zshrc"
-else
-	echo "First arg to setup script must be either zsh or bash"
-	exit 1
-fi
-cur=~/dotfiles
-ln -s $cur/.bash_aliases ~/.bash_aliases
-ln -s $cur/.functions.sh ~/.functions.sh
-ln -s $cur/.pylintrc ~/.pylintrc
-ln -s $cur/.tmux.conf ~/.tmux.conf
-ln -s $cur/.vimrc ~/.vimrc
-# ln -s $cur/.bash_vars ~/.bash_vars
-ln -s $cur/pyrightconfig.json ~/.config/pyright/pyrightconfig.json
-# ln -s $cur/.setup ~/.setup
-ln -s $cur/nvim ~/.config/nvim
-ln -s $cur/.gitconfig ~/.gitconfig
+DOTFILES="$HOME/dotfiles"
+BASHRC="$HOME/.bashrc"
 
-# Add source lines only if they don't already exist
-if ! grep -q 'source "$HOME/.bash_aliases"' ~/$filerc; then
-	echo 'if [[ -f "$HOME/.bash_aliases" ]]; then
-  source "$HOME/.bash_aliases"
-fi' >>~/$filerc
-fi
+files=(.bash_aliases .functions.sh .bash_prompt .pylintrc .tmux.conf .vimrc .gitconfig)
+for f in "${files[@]}"; do
+	ln -sf "$DOTFILES/$f" "$HOME/$f"
+done
+ln -sf "$DOTFILES/lldbinit" "$HOME/.lldbinit"
+mkdir -p "$HOME/.config"
+ln -sf "$DOTFILES/nvim" "$HOME/.config/nvim"
 
-if ! grep -q 'source "$HOME/.functions.sh"' ~/$filerc; then
-	echo 'if [[ -f "$HOME/.functions.sh" ]]; then
-  source "$HOME/.functions.sh"
-fi' >>~/$filerc
-fi
+sources=(.bash_aliases .functions.sh .bash_prompt)
+for s in "${sources[@]}"; do
+	if ! grep -q "source.*$s" "$BASHRC"; then
+		echo "[ -f \"\$HOME/$s\" ] && source \"\$HOME/$s\"" >>"$BASHRC"
+	fi
+done
 
-# if ! grep -q 'source "$HOME/.setup"' ~/$filerc; then
-# 	echo 'if [[ -f "$HOME/.setup" ]]; then
-#   source "$HOME/.setup"
-# fi' >>~/$filerc
-# fi
+if ! grep -q 'machines/.*\.sh' "$BASHRC"; then
+	cat >>"$BASHRC" <<'EOF'
+MACHINE_CONFIG="$HOME/dotfiles/machines/$(hostname -s).sh"
