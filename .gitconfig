@@ -20,6 +20,8 @@
     mt = mergetool
 [mergetool]
 	prompt = false
+[core]
+	editor = vim
 [credential "https://github.com"]
 	helper = 
 	helper = !/home/jeffk/miniconda3/envs/gcv/bin/gh auth git-credential
