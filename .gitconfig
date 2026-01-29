@@ -24,9 +24,12 @@
 	editor = vim
 [credential "https://github.com"]
 	helper = 
-	helper = !/home/jeffk/miniconda3/envs/gcv/bin/gh auth git-credential
+	helper = !/home/jeffk/miniconda3/envs/isaacsim/bin/gh auth git-credential
 [credential "https://gist.github.com"]
 	helper = 
-	helper = !/home/jeffk/miniconda3/envs/gcv/bin/gh auth git-credential
-[core]
-	editor = vim
+	helper = !/home/jeffk/miniconda3/envs/isaacsim/bin/gh auth git-credential
+[filter "lfs"]
+	clean = git-lfs clean -- %f
+	smudge = git-lfs smudge -- %f
+	process = git-lfs filter-process
+	required = true
