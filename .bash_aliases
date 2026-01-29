@@ -1,14 +1,9 @@
-if [[ $SHELL == *"zsh"* ]]; then
-	filerc=".zshrc"
-elif [[ $SHELL == *"bash"* ]]; then
-	filerc=".bashrc"
-fi
 alias l3d='source ~/repo/scripts/l3d'
 alias dpsa="docker ps -a"
 alias dli='docker images'
 alias drmi='docker rmi'
-alias ebash='vim ~/$filerc'
-alias fresh='source ~/$filerc'
+alias ebash='vim ~/.bashrc'
+alias fresh='source ~/.bashrc'
 alias laa='vim ~/.bash_aliases'
 alias efunc='vim ~/.functions.sh'
 alias vlr='source ~/repo/scripts/vlr'
