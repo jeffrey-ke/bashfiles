@@ -324,3 +324,14 @@ gshare() {
     echo "Link: $link"
     echo "(logged to $_gdrive_share_log)"
 }
+function cd () {
+  builtin cd "$@" || return $?
+  local IFS='/' parts=() accumulator=""
+  read -ra parts <<< "$PWD"
+  for part in "${parts[@]}"; do
+    [[ -z "$part" ]] && continue
+    accumulator+="/$part"
+    [[ -f "$accumulator/.aliases" ]] && source "$accumulator/.aliases"
+  done
+  return 0
+}
