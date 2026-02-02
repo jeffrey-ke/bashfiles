@@ -22,3 +22,6 @@ done
 if ! grep -q 'machines/.*\.sh' "$BASHRC"; then
 	cat >>"$BASHRC" <<'EOF'
 MACHINE_CONFIG="$HOME/dotfiles/machines/$(hostname -s).sh"
+[ -f "$MACHINE_CONFIG" ] && source "$MACHINE_CONFIG"
+EOF
+fi
