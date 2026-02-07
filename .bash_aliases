@@ -51,7 +51,6 @@ alias visual='cd ~/repo/visual_servoing && conda activate torch'
 alias rollout='cd ~/repo/visual_servoing/visual-servo-rollout && conda activate torch && source $HOME/isaacsim/setup_conda_env.sh'
 
 alias envim='cd ~/.config/nvim && nvim init.lua'
-alias rol='python3 visual-servo-rollout/isaac_rollout.py'
 
 # Google Drive rclone aliases
 alias gdu='rclone --password-command "read -s -p \"rclone password: \" p; echo \"\$p\"" about gdrive:'
