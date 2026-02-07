@@ -335,3 +335,8 @@ function cd () {
   done
   return 0
 }
+
+gitdel() {
+    git branch -D $1
+    git branch -rd origin/$1 2>/dev/null
+}
