@@ -326,12 +326,20 @@ gshare() {
 }
 function cd () {
   builtin cd "$@" || return $?
-  local IFS='/' parts=() accumulator=""
-  read -ra parts <<< "$PWD"
-  for part in "${parts[@]}"; do
-    [[ -z "$part" ]] && continue
-    accumulator+="/$part"
-    [[ -f "$accumulator/.aliases" ]] && source "$accumulator/.aliases"
+  local accumulator="" remaining="${PWD#/}"
+  while [[ -n "$remaining" ]]; do
+    if [[ "$remaining" == */* ]]; then
+      accumulator+="/${remaining%%/*}"
+      remaining="${remaining#*/}"
+    else
+      accumulator+="/$remaining"
+      remaining=""
+    fi
+    if [[ -f "$accumulator/.aliases" ]]; then
+      echo "Sourcing $accumulator/.aliases:"
+      cat "$accumulator/.aliases"
+      source "$accumulator/.aliases"
+    fi
   done
   return 0
 }
