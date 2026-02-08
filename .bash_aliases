@@ -61,3 +61,4 @@ alias ghelp='echo "  gcheck              # Verify rclone config
   gls [folder]        # List files in Drive folder
   gdu                 # Show Drive quota
   glog                # View share history"'
+alias avenv='python -m venv .venv'
