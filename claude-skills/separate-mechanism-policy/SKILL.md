@@ -258,6 +258,49 @@ Similarly, `MovingAverageDirection.next` uses `np.mean` internally. If you're a 
 
 The principle: **if the operation is the function's identity, hardcode it. If reasonable callers would diverge, parameterize it.**
 
+### Identity applies to data types too, not just operations
+
+The same test applies when a data structure declares its field types. A type declaration is a hardcoded choice — it forecloses alternatives. The question is whether the foreclosed alternatives are ones any reasonable consumer would want.
+
+```python
+# BAD — union type abdicates the decision
+@dataclass
+class LossInfo:
+    deviation: np.ndarray | torch.Tensor
+    predicted: np.ndarray | torch.Tensor
+    gt: np.ndarray | torch.Tensor
+```
+
+The union says "I don't know what I am." Every consumer must inspect or defensively convert, because the type makes no promise. The format is shaped by the producer's convenience (torch was easy, so I left it as torch), not by a deliberate contract.
+
+Ask: **would a reasonable consumer of `LossInfo` want torch tensors?** `LossInfo` is a post-inference summary — its consumers are plotting, thresholding, aggregation, reporting. These are all numpy operations. No consumer feeds a `LossInfo` back into a model or runs autograd on it. The struct lives entirely in post-torch-land. Torch tensors aren't a reasonable alternative here — they're a leftover from the production side.
+
+```python
+# GOOD — type declares what it is
+@dataclass
+class LossInfo:
+    deviation: np.ndarray
+    predicted: np.ndarray
+    gt: np.ndarray
+```
+
+Now the constructor (wherever it lives) converts to numpy as part of "construct a valid instance." That's not dictating policy — it's fulfilling a type contract, the same way `square(x)` multiplying is fulfilling its identity.
+
+**Contrast with a real choice point:**
+
+```python
+# BAD — this forecloses a choice callers actually make
+@dataclass
+class TreeNode:
+    split_criterion: str = "gini"  # callers diverge: gini, entropy, custom
+```
+
+Callers genuinely want different splitting criteria. Hardcoding one narrows their options. The criterion is a choice point, not the struct's identity.
+
+**The test for data types mirrors the test for operations:** if every reasonable consumer of this struct expects the same representation, the type declaration is identity. If consumers would genuinely diverge on representation, the type is a choice point that should be parameterized or left to the caller.
+
+**Where the conversion goes:** once the type commits, the conversion belongs at construction time — not in a downstream consumer (that's patching after the fact), not in a lazy `__getattr__` (that's hiding mechanism in the data container), and not as a separate "fixup" step in the orchestrator (that's compensating for a contract violation). The producer constructs a valid instance, which means satisfying the declared type. That's mechanism, not policy.
+
 ## Side Effects and Shared Resources
 
 A side effect is any observable change to state that outlives the function call and isn't the return value.
