@@ -12,6 +12,7 @@
 	editor = vim
 [difftool]
 	prompt = false
+	trustExitCode = true
 [alias]
     co = checkout
     br = branch
