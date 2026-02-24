@@ -324,8 +324,56 @@ gshare() {
     echo "Link: $link"
     echo "(logged to $_gdrive_share_log)"
 }
+
+_extract_drive_id() {
+    echo "$1" | grep -oP '(?:folders/|file/d/|[?&]id=)\K[A-Za-z0-9_-]+' | head -1
+}
+
+gfetch() {
+    if [[ $# -lt 1 ]]; then
+        echo "Usage: gfetch <drive-url> [dest]"
+        echo "Downloads a Google Drive folder to a local directory"
+        echo "Default dest: current directory"
+        return 1
+    fi
+
+    local url="$1"
+    local dest="${2:-.}"
+
+    local folder_id
+    folder_id=$(_extract_drive_id "$url")
+    if [[ -z "$folder_id" ]]; then
+        echo "ERROR: Could not extract folder ID from URL"
+        return 1
+    fi
+
+    echo "Folder ID: $folder_id"
+    echo "Listing contents..."
+
+    local listing
+    listing=$(_rclone_with_password ls "${_gdrive_remote}:" --drive-root-folder-id="$folder_id" 2>&1)
+    if [[ $? -ne 0 ]]; then
+        echo "ERROR: Could not list folder"
+        echo "$listing"
+        return 1
+    fi
+
+    echo "$listing"
+    echo ""
+    echo "Downloading to $dest..."
+
+    if ! _rclone_with_password copy "${_gdrive_remote}:" "$dest" --drive-root-folder-id="$folder_id" --progress; then
+        echo "ERROR: Download failed"
+        return 1
+    fi
+
+    echo ""
+    echo "SUCCESS: Downloaded to $dest"
+}
 function cd () {
   builtin cd "$@" || return $?
+  [[ -n "$_CD_SOURCING" ]] && return 0
+  local _CD_SOURCING=1
   local accumulator="" remaining="${PWD#/}"
   while [[ -n "$remaining" ]]; do
     if [[ "$remaining" == */* ]]; then
