@@ -234,6 +234,75 @@ The logic is now a generic loop. Adding a logger means: write the class, add one
 
 The full "fold into data" win would be if the registry were driven entirely by config or plugin discovery, so adding a logger that already exists in the codebase is a config-only change. But at some point, the mapping from a string name to a Python class must live in code — you can push it to conventions (`importlib`), entry points, or plugin systems, but you can't eliminate it entirely.
 
+### Case Study 5: Config loading — YAML instance vs. schema
+
+A YAML file is an *instance*, not a schema. It says "here are the values for this run." It cannot say what makes a config valid in general.
+
+Consider a project where config is loaded from YAML and consumed across multiple files:
+
+```python
+# utils.py
+val_ratio = config["data"]["val_split"]
+batch_size = config["data"]["batch_size"]
+assert 0 < val_ratio < 1
+
+# train.py
+np.random.seed(config["experiment"]["seed"])
+optimizer = getattr(torch.optim, config['training']['optimizer']['name'])(...)
+
+# model.py
+if config["model"]["architecture"] == "DualStreamCNN":
+    input_channels = config['model']['input_channels']
+```
+
+"Where is the config schema?" → "Read all the consumers and infer it." Red flag #5.
+
+Every key access is a hidden schema fragment — a silent assertion about what the config must contain. Scattered across files, these assertions encode:
+
+- **Which fields are required** — `config["experiment"]["seed"]` crashes with `KeyError` if missing; `config["data"].get("background_dir", None)` silently uses `None`. The difference between required and optional is encoded in `[]` vs `.get()`, inconsistently, at every access site.
+- **Type constraints** — `0 < val_ratio < 1` is enforced only here, only at runtime, only if this code path runs.
+- **Value constraints** — `getattr(torch.optim, name)` will crash with `AttributeError` if `name` isn't a valid optimizer. Nothing declares the valid set upfront.
+- **Relationships between fields** — nothing expresses that `optimizer.name` must name a real `torch.optim` class.
+
+**The YAML instance doesn't help.** Reading it tells you what *this* run used — not whether `background_dir` is optional, not what happens if `seed` is missing, not which optimizer names are valid. The consumers still hold the real schema, as implicit assertions. The YAML and the consumers must agree, but nothing enforces that agreement.
+
+A schema closes this gap:
+
+```python
+@dataclass
+class DataConfig:
+    dataset_path: str                                      # required — no default
+    val_split: float = 0.2                                 # optional with default
+    batch_size: int = 16
+    num_workers: int = 4
+    background_dir: str | None = None                      # explicitly optional
+
+@dataclass
+class TrainingConfig:
+    num_epochs: int = 100
+    optimizer: OptimizerConfig = field(default_factory=OptimizerConfig)
+    scheduler: SchedulerConfig = field(default_factory=SchedulerConfig)
+
+@dataclass
+class Config:
+    data: DataConfig
+    training: TrainingConfig
+    model: ModelConfig
+    logging: LoggingConfig
+    experiment: ExperimentConfig
+    transforms: TransformConfig
+```
+
+Now:
+
+- **"Where is the schema?"** → the dataclass declarations. One answer.
+- **Required vs optional** is declared by the presence or absence of a default — not scattered across `.get()` calls.
+- **Validation happens at load time.** Missing required fields fail immediately with a clear message, before any training begins.
+- **Type constraints** are enforced by construction, not by scattered `assert` statements.
+- **Every consumer** gets typed access — `config.data.val_split` instead of `config["data"]["val_split"]`. A typo is a type error, not a runtime `KeyError`.
+
+`load_config` becomes stupid: parse YAML → construct `Config` → return. It neither knows nor cares what fields exist. The schema is the single source of truth. The YAML is still the instance ("here are my values"). The dataclass is the schema ("here is what any valid config must look like"). Construction is enforcement.
+
 ## Knowledge vs. Logic — When NOT to Fold
 
 Not everything should be data. The principle is "fold *knowledge* into data." Logic and algorithms stay as code.
@@ -352,3 +421,13 @@ Data can be:
 - **Operated on generically**: the same loop works for 4 entries or 400
 
 Procedural branches can't do any of these naturally. Each branch is a unique snowflake that must be read, understood, and maintained individually.
+
+## The Deeper Principle
+
+All of these cases share the same underlying structure: **authority on what's correct belongs to data; checking is generic logic that operates on whatever data it's given.**
+
+This is why logic stays stable when data changes. Generic logic doesn't name specific cases — it operates on the data that names them. The tax rate table changes; `TAX_RATES[state]` doesn't. The transition graph changes; the two-line dispatcher doesn't. The dataclass schema changes; `asdict` doesn't.
+
+Type checking is the same pattern applied to programs themselves. The type checker is generic logic. Your type declarations — field names, types, required vs. optional — are the data it operates on. Add a field to a dataclass; the type checker's logic doesn't change. It re-runs on the new data and propagates the updated authority to every consumer automatically. This is why a dataclass + type checker solves the scattered-schema problem: the declarations become the single source of truth, and enforcement is generic.
+
+The principle has a limit: at some meta-level, the checking logic itself must be grounded in something it doesn't itself validate. The type checker can't type-check itself without circularity. Every validation regime has a foundation it accepts without proof. But within a given level, the principle holds — make correctness declarable as data, and the checking mechanism becomes a stable, reusable tool that never needs to change when the rules do.
