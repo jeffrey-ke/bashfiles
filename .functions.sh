@@ -329,10 +329,14 @@ _extract_drive_id() {
     echo "$1" | grep -oP '(?:folders/|file/d/|[?&]id=)\K[A-Za-z0-9_-]+' | head -1
 }
 
+_drive_folder_name() {
+    curl -sL "$1" | grep -oP '<title>\K[^<]+' | head -1 | sed 's/ - Google Drive$//'
+}
+
 gfetch() {
     if [[ $# -lt 1 ]]; then
         echo "Usage: gfetch <drive-url> [dest]"
-        echo "Downloads a Google Drive folder to a local directory"
+        echo "Downloads a Google Drive folder, preserving its name"
         echo "Default dest: current directory"
         return 1
     fi
@@ -347,7 +351,16 @@ gfetch() {
         return 1
     fi
 
-    echo "Folder ID: $folder_id"
+    local folder_name
+    folder_name=$(_drive_folder_name "$url")
+    if [[ -z "$folder_name" ]]; then
+        echo "WARNING: Could not determine folder name, using ID"
+        folder_name="$folder_id"
+    fi
+
+    local target="${dest}/${folder_name}"
+
+    echo "Folder: $folder_name"
     echo "Listing contents..."
 
     local listing
@@ -360,15 +373,16 @@ gfetch() {
 
     echo "$listing"
     echo ""
-    echo "Downloading to $dest..."
+    echo "Downloading to $target..."
+    mkdir -p "$target"
 
-    if ! _rclone_with_password copy "${_gdrive_remote}:" "$dest" --drive-root-folder-id="$folder_id" --progress; then
+    if ! _rclone_with_password copy "${_gdrive_remote}:" "$target" --drive-root-folder-id="$folder_id" --progress; then
         echo "ERROR: Download failed"
         return 1
     fi
 
     echo ""
-    echo "SUCCESS: Downloaded to $dest"
+    echo "SUCCESS: Downloaded to $target"
 }
 function cd () {
   builtin cd "$@" || return $?
