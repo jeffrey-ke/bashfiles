@@ -410,3 +410,7 @@ gitdel() {
     git branch -D $1
     git branch -rd origin/$1 2>/dev/null
 }
+
+pydb() {
+	python3 -m pdb $1
+}
