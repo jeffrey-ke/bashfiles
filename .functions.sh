@@ -414,3 +414,21 @@ gitdel() {
 pydb() {
 	python3 -m pdb $1
 }
+
+trun() {
+  if [[ $# -eq 0 ]]; then
+    echo "Usage: trun [session-name] <command...>" >&2
+    return 1
+  fi
+
+  local name cmd
+  if [[ $# -gt 1 && "$1" != *" "* ]]; then
+    name="$1"; shift
+  else
+    name="${1%% *}"
+  fi
+
+  cmd="$*"
+  tmux new-session -d -s "$name" \; send-keys -t "$name" "$cmd" Enter && \
+    echo "Started '$name'. Attach: tmux attach -t $name"
+}
