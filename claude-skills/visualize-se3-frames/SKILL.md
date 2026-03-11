@@ -1,6 +1,6 @@
 ---
 name: visualize-se3-frames
-description: Generate matplotlib code to visualize SE3 poses and coordinate frames in 3D. Use when the user needs to plot transformation matrices, coordinate frames, kinematic chains, or debug robot poses visually.
+description: Generate matplotlib code to visualize SE3 poses and coordinate frames in 3D. Use when the user needs to plot transformation matrices, coordinate frames, trajectories, kinematic chains, or debug robot poses visually.
 argument-hint: [optional: variable name or file containing poses]
 ---
 
@@ -14,69 +14,95 @@ Plot SE3 poses (4x4 homogeneous transformation matrices) as RGB coordinate frame
 - SE3 matrix layout: rotation in `T[:3, :3]`, translation in `T[:3, 3]`
 - Each column of the rotation matrix is a frame axis direction
 
-## Core Recipe
+## Core Functions
 
 ```python
 import numpy as np
 import matplotlib.pyplot as plt
 
-def plot_coordinate_frame(ax, T, label="", scale=0.01, alpha=0.8):
+
+def plot_coordinate_frame(ax, T, scale=1.0, alpha=0.8, label=None):
     """Plot an SE3 pose as RGB axes. T is a 4x4 homogeneous matrix."""
     origin = T[:3, 3]
-    for i, color in enumerate(['red', 'green', 'blue']):
+    for i, color in enumerate(["red", "green", "blue"]):
         axis = T[:3, i] * scale
-        ax.quiver(origin[0], origin[1], origin[2],
-                  axis[0], axis[1], axis[2],
-                  color=color, alpha=alpha, arrow_length_ratio=0.1)
+        ax.quiver(
+            origin[0], origin[1], origin[2],
+            axis[0], axis[1], axis[2],
+            color=color, alpha=alpha, arrow_length_ratio=0.1,
+        )
     if label:
-        ax.text(origin[0], origin[1], origin[2], label, fontsize=8, alpha=0.7)
+        ax.text(origin[0], origin[1], origin[2], f"  {label}", fontsize=8, alpha=0.7)
 
-fig = plt.figure(figsize=(12, 8))
-ax = fig.add_subplot(111, projection='3d')
+
+def arrow_scale_from_origins(origins):
+    """Compute arrow length proportional to spatial extent of the scene."""
+    extent = origins.max(axis=0) - origins.min(axis=0)
+    return max(extent.max() / 12, 1e-3)
 ```
 
-## Adjusting Scale
+## Plotting a Trajectory of Poses
 
-The `scale` parameter controls arrow length relative to scene units:
-- Meter-scale scenes: `scale=0.01` to `0.05`
-- Millimeter-scale scenes: `scale=5` to `20`
-- Normalized scenes: `scale=0.1` to `0.3`
+When plotting many poses (e.g. odometry), subsample and auto-scale:
+
+```python
+origins = np.array([T[:3, 3] for T in poses])
+scale = arrow_scale_from_origins(origins)
+
+fig = plt.figure()
+ax = fig.add_subplot(projection="3d")
+
+# thin trajectory line connecting origins
+ax.plot(origins[:, 0], origins[:, 1], origins[:, 2], "k-", alpha=0.3, linewidth=0.5)
+
+for T in poses:
+    plot_coordinate_frame(ax, T, scale=scale, alpha=0.6)
+```
+
+## Auto-fit Equal-Aspect Axis Limits
+
+Force equal scaling on all three axes so frames don't appear distorted:
+
+```python
+origins = np.array([T[:3, 3] for T in poses])
+lo, hi = origins.min(axis=0), origins.max(axis=0)
+mid = (lo + hi) / 2
+half = (hi - lo).max() / 2 + scale  # include arrow length in margin
+ax.set_xlim(mid[0] - half, mid[0] + half)
+ax.set_ylim(mid[1] - half, mid[1] + half)
+ax.set_zlim(mid[2] - half, mid[2] + half)
+```
+
+## Common Conversions
+
+Quaternion (x, y, z, w) to rotation matrix:
+
+```python
+def quaternion_to_rotation(x, y, z, w):
+    return np.array([
+        [1 - 2*(y*y + z*z),   2*(x*y - z*w),       2*(x*z + y*w)],
+        [2*(x*y + z*w),       1 - 2*(x*x + z*z),   2*(y*z - x*w)],
+        [2*(x*z - y*w),       2*(y*z + x*w),       1 - 2*(x*x + y*y)],
+    ])
+```
 
 ## Drawing Kinematic Chains
 
 Connect parent-child frames with black lines:
 
 ```python
-for parent_pos, child_pos in connections:
-    ax.plot([parent_pos[0], child_pos[0]],
-            [parent_pos[1], child_pos[1]],
-            [parent_pos[2], child_pos[2]],
-            'k-', alpha=0.5, linewidth=1)
-```
-
-## Auto-fit Axis Limits
-
-```python
-all_positions = np.array([T[:3, 3] for T in all_transforms])
-margin = 0.02  # adjust to scene scale
-for setter, dim in [(ax.set_xlim, 0), (ax.set_ylim, 1), (ax.set_zlim, 2)]:
-    setter(all_positions[:, dim].min() - margin, all_positions[:, dim].max() + margin)
-```
-
-## Custom Legend
-
-```python
-from matplotlib.lines import Line2D
-ax.legend(handles=[
-    Line2D([0], [0], color='red', lw=2, label='X-axis'),
-    Line2D([0], [0], color='green', lw=2, label='Y-axis'),
-    Line2D([0], [0], color='blue', lw=2, label='Z-axis'),
-], loc='upper right')
+for parent_T, child_T in connections:
+    ax.plot(
+        [parent_T[0, 3], child_T[0, 3]],
+        [parent_T[1, 3], child_T[1, 3]],
+        [parent_T[2, 3], child_T[2, 3]],
+        "k-", alpha=0.5, linewidth=1,
+    )
 ```
 
 ## Chaining Transforms
 
-To accumulate transformations along a kinematic chain:
+Accumulate transformations along a kinematic chain:
 
 ```python
 T_cumulative = np.eye(4)
@@ -87,9 +113,8 @@ for T_joint in joint_transforms:
 
 ## When Applying This Skill
 
-1. Determine the scene scale (meters vs mm) and set `scale` accordingly
-2. Plot the world/root frame at identity `np.eye(4)` as a reference
-3. Plot each SE3 pose with a descriptive label
-4. If poses form a chain, draw connecting lines between origins
-5. Auto-fit axis limits so nothing is clipped
-6. Add the RGB legend so the viewer knows which axis is which
+1. Determine whether poses are individual frames or a trajectory — use `arrow_scale_from_origins` either way
+2. For trajectories: subsample (e.g. every Nth), draw a connecting line, use lower alpha
+3. For individual frames: plot at full alpha with labels
+4. Always auto-fit axis limits with equal aspect so orientations render correctly
+5. Plot a world/root frame at `np.eye(4)` as reference when useful
