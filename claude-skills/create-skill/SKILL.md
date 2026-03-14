@@ -6,11 +6,22 @@ argument-hint: <skill-name> [description of what the skill should capture]
 
 # Create a Claude Code Skill
 
+## Skill Discovery
+
+Claude Code discovers skills from these locations (no symlinks needed):
+
+| Location | Path | Scope |
+|----------|------|-------|
+| **Personal** | `~/.claude/skills/<skill-name>/SKILL.md` | All projects |
+| **Project** | `.claude/skills/<skill-name>/SKILL.md` | Current project only |
+
+The user's personal skills are also stored in `~/dotfiles/claude-skills/` for version control.
+
 ## Process
 
 1. **Choose a name**: kebab-case, descriptive of the capability (e.g. `visualize-se3-frames`, `fold-knowledge-into-data`)
 
-2. **Create the skill file** at `~/dotfiles/claude-skills/<skill-name>/SKILL.md` with this structure:
+2. **Create the skill file** with this structure:
 
 ```markdown
 ---
@@ -36,10 +47,13 @@ argument-hint: <what arguments the user might pass>
 <Numbered checklist of decisions to make when using it>
 ```
 
-3. **Symlink into auto-discovery path**:
+3. **Install the skill**:
 ```bash
+mkdir -p ~/dotfiles/claude-skills/<skill-name>
+# Write SKILL.md here
 ln -s ~/dotfiles/claude-skills/<skill-name> ~/.claude/skills/<skill-name>
 ```
+The canonical copy lives in `~/dotfiles/claude-skills/` (version controlled). Symlink it into `~/.claude/skills/` for discovery.
 
 ## Skill Writing Guidelines
 
