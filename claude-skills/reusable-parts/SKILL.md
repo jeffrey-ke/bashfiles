@@ -1,0 +1,147 @@
+---
+name: reusable-parts
+description: Review code for functions that fuse logic instead of composing independent parts. Test whether convenience functions are thin orchestration (good) or god functions with trapped logic (bad).
+user_invocable: true
+trigger: Use when reviewing code for reusability, when a function does too many things, or when you want to verify that a convenience/orchestration function is truly just a calling sequence over independent parts.
+---
+
+# Reusable Parts
+
+## Principle
+
+The UNIX philosophy says: make simple functions that do one thing, then compose them into complex behavior. Convenience functions that orchestrate simple parts are fine — they're just shell scripts piping tools together. God functions that *fuse* logic are not — they trap decisions inside and make the parts unusable independently.
+
+**The test:** Can you use the parts without the whole? If yes, the convenience function is just orchestration. If no, it's a god function.
+
+## How to apply
+
+Read the code the user points you to (or the recently changed code). For each function that calls multiple other functions or contains multiple logical steps, evaluate:
+
+1. **Is it just a calling sequence?** The function should read like a recipe: call A, pass result to B, pass result to C. The orchestrator makes no decisions of its own beyond sequencing.
+
+2. **Does logic live in the leaves?** Branching, retries, configuration interpretation, error recovery — these belong in the primitive functions, not in the orchestrator. If the orchestrator contains `if/elif` chains, `for` loops that build data structures, or `try/except` with recovery logic, the logic has leaked upward.
+
+3. **Can the parts be used independently?** The ultimate proof. Can you call each primitive in a different context — a dry run, a single-shot redo, a test — without the orchestrator? If a primitive depends on state set up by the orchestrator, it's coupled.
+
+4. **Do steps communicate through shared mutable state?** If step B's behavior depends on side effects from step A via a shared `state` dict or mutated object, the steps are fused even if they look like separate functions.
+
+Report what you find. For each violation, show the specific lines and explain *why* they fail the test. Then refactor: extract the trapped logic into independent primitives and reduce the orchestrator to a thin calling sequence.
+
+## Case studies
+
+### BAD: Logic trapped inside the orchestrator
+
+```python
+def collect_dataset(robot, cameras, config, dataset):
+    # generates positions inline — can't reuse this logic
+    positions = []
+    for i in range(config.num_samples):
+        pos = [random.uniform(*config.bounds[axis]) for axis in 'xyz']
+        if config.avoid_collisions:
+            while robot.would_collide(pos):
+                pos = [random.uniform(*config.bounds[axis]) for axis in 'xyz']
+        positions.append(pos)
+
+    for pos in positions:
+        # movement logic with retries baked in
+        for attempt in range(3):
+            try:
+                robot.move(pos, velocity=0.3 if attempt == 0 else 0.1)
+                break
+            except MotionError:
+                if attempt == 2:
+                    continue
+
+        # capture with inline calibration decisions
+        images = []
+        for cam in cameras:
+            if cam.type == 'zed':
+                img = cam.grab(resolution='2k', depth=True)
+            elif cam.type == 'realsense':
+                img = cam.grab(resolution='1080p', depth=True, laser_power=150)
+            else:
+                img = cam.grab()
+            images.append(img)
+
+        dataset.append({'pos': pos, 'images': images})
+```
+
+**Why this fails:**
+
+- **Position generation is inline.** The collision-aware sampling logic is trapped inside the loop. You can't reuse it to visualize planned positions, test a different sampling strategy, or generate positions without a robot present.
+- **Retry logic is baked into the orchestrator.** The velocity-backoff retry strategy is a movement policy decision, but it lives in the dataset collection function. You can't reuse this retry logic for a different task, and you can't move the robot without retries if you wanted to.
+- **Camera dispatch is inline.** The `if cam.type == 'zed'` branching means adding a new camera type requires editing the dataset collection function. Capture configuration is a camera concern, not a dataset concern.
+- **Nothing is independently callable.** You can't generate positions without collecting a dataset. You can't capture images without the full loop. Every piece of logic is fused into one monolith.
+
+### BAD: Steps coupled through shared mutable state
+
+```python
+def collect_dataset(robot, cameras, config):
+    state = {'retries': 0, 'skipped': [], 'dataset': [], 'last_pos': None}
+
+    for i in range(config.num_samples):
+        pos = generate_next_pos(state, config)  # reads state['last_pos']
+        state['last_pos'] = pos
+
+        success = try_move(robot, pos, state)    # mutates state['retries']
+        if not success:
+            state['skipped'].append(i)           # steps communicate through state
+            continue
+
+        images = capture(cameras, state)          # behavior depends on state['retries']
+        state['dataset'].append({'pos': pos, 'images': images})
+
+    return state
+```
+
+**Why this fails:**
+
+- **The functions look independent but aren't.** They're separated into `generate_next_pos`, `try_move`, and `capture`, which gives the illusion of modularity. But they all read and write a shared `state` dict, so they're coupled through a side channel.
+- **Behavior depends on hidden context.** `capture(cameras, state)` changes behavior based on `state['retries']` — a value set by `try_move`. This means you can't call `capture` independently without first setting up the state that `try_move` would have produced.
+- **`generate_next_pos` depends on prior iteration.** It reads `state['last_pos']`, so you can't generate all positions up front or test the generation in isolation.
+- **The state dict is a god object in disguise.** Instead of fusing logic into one function, the logic is fused through shared mutable state. The coupling is just harder to see.
+
+### GOOD: Thin orchestration over independent parts
+
+```python
+# Simple primitives — each is self-contained
+def generate_positions(bounds, n, collision_check=None) -> list[Pose]: ...
+def move_robot(robot, pose) -> bool: ...
+def capture_images(cameras) -> list[Image]: ...
+def store_sample(dataset, images, pose): ...
+
+# Convenience function — just a calling sequence
+def collect_dataset(robot, cameras, config, dataset):
+    for pose in generate_positions(config.bounds, config.num_samples):
+        if move_robot(robot, pose):
+            images = capture_images(cameras)
+            store_sample(dataset, images, pose)
+```
+
+**Why this succeeds:**
+
+- **The orchestrator contains no logic of its own.** It's a four-line loop that calls primitives in sequence. No branching, no retries, no configuration interpretation. It reads like a recipe.
+- **Each primitive is self-contained.** `generate_positions` takes bounds and a count — it doesn't need a robot or a dataset. `capture_images` takes cameras — it doesn't need to know what position the robot is at. No function depends on side effects from another.
+- **The retry/collision/calibration logic lives in the leaves.** `move_robot` handles its own retry policy internally. `generate_positions` handles collision avoidance via the optional `collision_check` callback. Each camera knows how to configure itself inside `capture_images`. The orchestrator doesn't need to know about any of this.
+
+### GOOD: Proof — same parts, different compositions
+
+```python
+# Visualize planned positions without moving the robot
+def dry_run(config):
+    poses = generate_positions(config.bounds, config.num_samples)
+    plot_poses(poses)
+
+# Re-take images at a single known position
+def recapture_at(robot, cameras, dataset, pose_index):
+    pose = dataset[pose_index]['pose']
+    move_robot(robot, pose)
+    images = capture_images(cameras)
+    store_sample(dataset, images, pose)
+```
+
+**Why this succeeds:**
+
+- **This composition was never planned by the original author.** `dry_run` and `recapture_at` use the same primitives in arrangements the `collect_dataset` function never anticipated. This is only possible because the parts are truly independent.
+- **Each new composition is also a thin calling sequence.** No new logic is introduced. The functions are just wired together differently.
+- **This is the UNIX payoff.** Independent tools composed via simple scripts. The value isn't in any one function — it's in the fact that you can rearrange them freely.
