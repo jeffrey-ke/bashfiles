@@ -28,6 +28,7 @@ The user's personal skills are also stored in `~/dotfiles/claude-skills/` for ve
 name: <skill-name>
 description: <one-line description of when to use this skill — written for Claude, not humans>
 argument-hint: <what arguments the user might pass>
+allowed-tools: <comma-separated list of tools the skill needs, e.g. Read, Bash(cmd:*)>
 ---
 
 # <Title>
@@ -64,3 +65,4 @@ The canonical copy lives in `~/dotfiles/claude-skills/` (version controlled). Sy
 - Keep it concise: a skill is a recipe card, not a tutorial
 - Code in skills should be self-contained snippets, not imports from the project
 - Write for Claude as the reader: skills guide Claude's code generation, so frame instructions as "do this" not "you can do this"
+- **Set `allowed-tools` in the frontmatter** when a skill needs specific tools without prompting. Use comma-separated tool names with parenthesized patterns for Bash: `allowed-tools: Read, Bash(ls:*), Bash(pyright:*)`. Without this, the user gets prompted for every tool call even if the skill describes which tools are permitted.
