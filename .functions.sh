@@ -283,8 +283,8 @@ gls() {
 
 gshare() {
     if [[ $# -lt 1 ]]; then
-        echo "Usage: gshare <file> [folder]"
-        echo "Uploads file to Google Drive and returns shareable link"
+        echo "Usage: gshare <file|directory> [folder]"
+        echo "Uploads file or directory to Google Drive and returns shareable link"
         echo "Default folder: $_gdrive_default_folder"
         return 1
     fi
@@ -292,8 +292,8 @@ gshare() {
     local file="$1"
     local folder="${2:-$_gdrive_default_folder}"
 
-    if [[ ! -f "$file" ]]; then
-        echo "ERROR: File not found: $file"
+    if [[ ! -e "$file" ]]; then
+        echo "ERROR: Not found: $file"
         return 1
     fi
 
@@ -301,7 +301,12 @@ gshare() {
     local dest="${_gdrive_remote}:${folder}/${filename}"
 
     echo "Uploading $filename to $folder..."
-    if ! _rclone_with_password copy "$file" "${_gdrive_remote}:${folder}/"; then
+    local dest_path="${_gdrive_remote}:${folder}/"
+    if [[ -d "$file" ]]; then
+        dest_path="${_gdrive_remote}:${folder}/${filename}"
+    fi
+
+    if ! _rclone_with_password copy "$file" "$dest_path"; then
         echo "ERROR: Upload failed"
         return 1
     fi

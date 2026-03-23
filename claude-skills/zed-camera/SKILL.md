@@ -100,6 +100,27 @@ Intrinsics are stable after `open()` — call once and reuse.
 - **Stale/corrupted images**: Forgot `copy=True` on `get_data()` — the SDK buffer was overwritten by the next grab.
 - **Depth is all NaN**: Object too close or too far. Check `coordinate_units` matches your scene scale.
 
+## File-Descriptor Pattern: SafeZed + grabbed_frame
+
+The ZED SDK has an implicit precondition: `zed.grab()` must precede any `retrieve_*` call. This is the same shape as UNIX `open()`/`read()`. We enforce it with a context manager that yields a proxy object — like how `open()` returns an fd that `read()`/`write()` require.
+
+`SafeZed` (`datastructs.py`) is a transparent `__getattr__` proxy over `sl.Camera`. `grabbed_frame` (`goto_capture.py`) is the only factory — it calls `grab()`, yields a `SafeZed`, and invalidates it on exit.
+
+```python
+with grabbed_frame(zed) as frame:
+    left, right = retrieve_stereo_images(frame)  # image-only
+    depth = retrieve_depth(frame)                 # depth-only
+    frame.retrieve_image(mat, sl.VIEW.LEFT)       # raw SDK calls work too
+```
+
+Key properties:
+1. **Created by grab** — no `SafeZed` exists until `grab()` succeeds
+2. **Is the retrieve interface** — callers use `frame`, not raw `zed`
+3. **Exit invalidates** — post-`with` access raises `RuntimeError`
+4. **Raises on failure** — makes caller-side retry/backoff a simple loop around the `with`
+
+Image and depth retrieval are separate primitives (`retrieve_stereo_images`, `retrieve_depth`) that assert they receive a `SafeZed`. Callers compose whichever subset they need. `capture_zed_images` is the convenience function that grabs everything.
+
 ## Reference Functions (from `xarm_setup/goto_capture.py`)
 
 These are the functions that `datagen.py` imports and uses in its working pipeline.

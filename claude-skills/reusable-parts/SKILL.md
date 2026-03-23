@@ -2,6 +2,7 @@
 name: reusable-parts
 description: Review code for functions that fuse logic instead of composing independent parts. Test whether convenience functions are thin orchestration (good) or god functions with trapped logic (bad).
 user_invocable: true
+argument-hint: "[agents=N] [model=sonnet|opus|haiku]"
 trigger: Use when reviewing code for reusability, when a function does too many things, or when you want to verify that a convenience/orchestration function is truly just a calling sequence over independent parts.
 ---
 
@@ -15,7 +16,34 @@ The UNIX philosophy says: make simple functions that do one thing, then compose 
 
 ## How to apply
 
-Read the code the user points you to (or the recently changed code). For each function that calls multiple other functions or contains multiple logical steps, evaluate:
+**Step 1: Identify the target code.** Use the code the user points you to, or the recently changed code from git diff.
+
+**Step 2: Parse arguments.** The user may pass optional arguments:
+- `agents=N` — number of reviewer agents to spawn (default: 3)
+- `model=sonnet|opus|haiku` — Claude model for the agents (default: inherit from parent)
+
+For example: `/reusable-parts agents=5 model=haiku` spawns 5 agents using Haiku.
+
+**Step 3: Spawn N independent reviewer agents in parallel** using the Agent tool (subagent_type: general-purpose, model: as specified). Give each agent:
+- The full source of the code to review (paste it directly into the prompt, do not ask the agent to read files)
+- The five tests below
+- Instructions to return a structured report: one section per function reviewed, verdict (PASS / FAIL / WARN), and specific line citations for any violations
+
+The three agents should work independently — do not share intermediate results between them before they report back.
+
+**Step 4: Aggregate.** Once all N agents have returned, synthesize their findings:
+- Violations all/most agree on → confirmed, high confidence
+- Violations a majority flags → likely, note the dissent
+- Violations only one flags → possible, lower confidence, include but mark as minority view
+- Functions all pass → clean, note briefly
+
+Present the aggregated report to the user, grouped by function. For each confirmed or likely violation, cite the specific lines and explain *why* they fail the test. Then propose a refactor: extract the trapped logic into independent primitives and reduce the orchestrator to a thin calling sequence.
+
+---
+
+## The five tests (give these verbatim to each agent)
+
+For each function that calls multiple other functions or contains multiple logical steps, evaluate:
 
 1. **Is it just a calling sequence?** The function should read like a recipe: call A, pass result to B, pass result to C. The orchestrator makes no decisions of its own beyond sequencing.
 
@@ -25,7 +53,7 @@ Read the code the user points you to (or the recently changed code). For each fu
 
 4. **Do steps communicate through shared mutable state?** If step B's behavior depends on side effects from step A via a shared `state` dict or mutated object, the steps are fused even if they look like separate functions.
 
-Report what you find. For each violation, show the specific lines and explain *why* they fail the test. Then refactor: extract the trapped logic into independent primitives and reduce the orchestrator to a thin calling sequence.
+5. **Count the inputs.** Draw a circle around a block of inline code and count the arrows coming in from the surrounding scope. If the block only touches two or three variables out of the ten available in the function, it's telling you it doesn't belong to this scope. It's a self-contained computation sitting inside a larger function. Those few arrows are a function signature waiting to happen. This is especially common with inline math — a matrix inversion and decomposition that only needs two matrices, sitting inside a function that also has a robot handle, a camera, a config, and a list of images. The math doesn't know about any of that. It shouldn't have to.
 
 ## Case studies
 
