@@ -1,2 +1,7 @@
 #!/usr/bin/env zsh
-exec /bin/bash -i -c /Users/jke/.claude/local/claude
+SESSION="obsidian"
+if /usr/local/bin/tmux has-session -t "$SESSION" 2>/dev/null; then
+    exec /usr/local/bin/tmux attach-session -t "$SESSION"
+else
+    exec /usr/local/bin/tmux new-session -s "$SESSION" -c "$HOME/repo/Research/Research" "/bin/bash -i -c /Users/jke/.claude/local/claude"
+fi
