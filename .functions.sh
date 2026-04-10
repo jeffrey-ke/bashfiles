@@ -389,27 +389,6 @@ gfetch() {
     echo ""
     echo "SUCCESS: Downloaded to $target"
 }
-function cd () {
-  builtin cd "$@" || return $?
-  [[ -n "$_CD_SOURCING" ]] && return 0
-  local _CD_SOURCING=1
-  local accumulator="" remaining="${PWD#/}"
-  while [[ -n "$remaining" ]]; do
-    if [[ "$remaining" == */* ]]; then
-      accumulator+="/${remaining%%/*}"
-      remaining="${remaining#*/}"
-    else
-      accumulator+="/$remaining"
-      remaining=""
-    fi
-    if [[ -f "$accumulator/.aliases" ]]; then
-      echo "Sourcing $accumulator/.aliases:"
-      cat "$accumulator/.aliases"
-      source "$accumulator/.aliases"
-    fi
-  done
-  return 0
-}
 
 gitdel() {
     git branch -D $1
@@ -418,6 +397,21 @@ gitdel() {
 
 pydb() {
 	python3 -m pdb $1
+}
+
+fixdisplay() {
+  if [[ -z "$TMUX" ]]; then
+    echo "Not in a tmux session"
+    return 1
+  fi
+  for var in DISPLAY WAYLAND_DISPLAY XAUTHORITY; do
+    local val
+    val=$(tmux show-environment "$var" 2>/dev/null)
+    if [[ "$val" == "${var}="* ]]; then
+      export "$val"
+    fi
+  done
+  echo "DISPLAY=$DISPLAY"
 }
 
 trun() {
