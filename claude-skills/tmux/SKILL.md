@@ -211,3 +211,12 @@ if-shell "command -v fzf" {
 5. **Format expansion timing** — Formats in `bind-key` arguments are expanded when the key is pressed, not when the config is loaded. But `run-shell` arguments are expanded once at execution time, then passed to the shell.
 
 6. **Nested tmux commands** — When `run-shell` calls `tmux command-prompt`, the inner tmux command connects to the same server as a client command. Format expansion in the inner command is independent of the outer `run-shell` expansion.
+
+7. **Implicit "current window/pane" is unreliable in nested `run-shell`** — A script invoked via `command-prompt` → `run-shell` does not reliably inherit the current window/pane context. Always capture `#{window_id}` or `#{pane_id}` in the outer `run-shell` (where context is valid) and pass as explicit arguments. See `session-log.md` for a detailed case study.
+
+## Session Log
+
+`session-log.md` (in this directory) documents what was tried, what failed, and what worked when building tmux keybindings. **Read it before implementing new bindings** to avoid repeating past mistakes. Key topics covered:
+- `##` vs `#` expansion rules in practice (when to use which)
+- Why `move-window` / `join-pane` without explicit `-s` fails in nested contexts
+- The `new-session` + `move-window` + `kill-window` pattern for breaking a window into a new session
