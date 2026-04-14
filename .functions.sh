@@ -395,6 +395,55 @@ gitdel() {
     git branch -rd origin/$1 2>/dev/null
 }
 
+# gtar: upload files/directories to a named folder in Google Drive
+# Usage: gtar <gdrive-folder> <path> [path2 ...]
+# Example: gtar my-dataset logs/ weights.pt config.yaml
+gtar() {
+    if [[ $# -lt 2 ]]; then
+        echo "Usage: gtar <gdrive-folder> <path> [path2 ...]"
+        return 1
+    fi
+
+    local folder="$1"; shift
+
+    for p in "$@"; do
+        if [[ ! -e "$p" ]]; then
+            echo "ERROR: path not found: $p"
+            return 1
+        fi
+    done
+
+    for p in "$@"; do
+        local name
+        name=$(basename "$p")
+        local dest="${_gdrive_remote}:${folder}/"
+        [[ -d "$p" ]] && dest="${_gdrive_remote}:${folder}/${name}"
+
+        echo "Uploading $p -> $_gdrive_remote:${folder}/..."
+        if ! _rclone_with_password copy "$p" "$dest" --progress; then
+            echo "ERROR: Upload failed for $p"
+            return 1
+        fi
+    done
+
+    echo ""
+    echo "Creating shareable link..."
+    local link
+    link=$(_rclone_with_password link "${_gdrive_remote}:${folder}" 2>&1)
+    if [[ $? -ne 0 ]]; then
+        echo "WARNING: Could not create link"
+        echo "$link"
+    else
+        local timestamp
+        timestamp=$(date -Iseconds)
+        echo "$timestamp ${folder} $link" >> "$_gdrive_share_log"
+        echo "Link: $link"
+        echo "(logged to $_gdrive_share_log)"
+    fi
+
+    echo "SUCCESS: all files uploaded to $_gdrive_remote:${folder}/"
+}
+
 pydb() {
 	python3 -m pdb $1
 }
