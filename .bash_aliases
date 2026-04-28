@@ -3,7 +3,6 @@ alias dpsa="docker ps -a"
 alias dli='docker images'
 alias drmi='docker rmi'
 alias ebash='vim ~/.bashrc'
-alias fresh='source ~/.bashrc'
 alias lsaa='vim ~/.bash_aliases'
 alias efunc='nvim ~/.functions.sh'
 alias vlr='source ~/repo/scripts/vlr'
