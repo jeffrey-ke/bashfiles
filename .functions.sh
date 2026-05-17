@@ -341,7 +341,7 @@ _drive_folder_name() {
 gfetch() {
     if [[ $# -lt 1 ]]; then
         echo "Usage: gfetch <drive-url> [dest]"
-        echo "Downloads a Google Drive folder, preserving its name"
+        echo "Downloads a Google Drive folder or file, preserving its name"
         echo "Default dest: current directory"
         return 1
     fi
@@ -349,13 +349,26 @@ gfetch() {
     local url="$1"
     local dest="${2:-.}"
 
-    local folder_id
-    folder_id=$(_extract_drive_id "$url")
-    if [[ -z "$folder_id" ]]; then
-        echo "ERROR: Could not extract folder ID from URL"
+    local drive_id
+    drive_id=$(_extract_drive_id "$url")
+    if [[ -z "$drive_id" ]]; then
+        echo "ERROR: Could not extract ID from URL"
         return 1
     fi
 
+    if [[ "$url" == *"/file/d/"* ]]; then
+        mkdir -p "$dest"
+        echo "Downloading file (id=$drive_id) to ${dest%/}/..."
+        if ! _rclone_with_password backend copyid "${_gdrive_remote}:" "$drive_id" "${dest%/}/"; then
+            echo "ERROR: Download failed"
+            return 1
+        fi
+        echo ""
+        echo "SUCCESS: Downloaded to ${dest%/}/"
+        return 0
+    fi
+
+    local folder_id="$drive_id"
     local folder_name
     folder_name=$(_drive_folder_name "$url")
     if [[ -z "$folder_name" ]]; then
@@ -479,4 +492,11 @@ trun() {
   cmd="$*"
   tmux new-session -d -s "$name" \; send-keys -t "$name" "$cmd" Enter && \
     echo "Started '$name'. Attach: tmux attach -t $name"
+}
+notify() {
+  if [ -n "$TMUX" ]; then
+    printf '\033Ptmux;\033\033]9;%s\007\033\\' "$1"
+  else
+    printf '\033]9;%s\007' "$1"
+  fi
 }
