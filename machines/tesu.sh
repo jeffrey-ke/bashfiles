@@ -44,3 +44,4 @@ function y() {
 	rm -f -- "$tmp"
 }
 alias fresh="source ~/.bashrc"
+alias fvim="nvim \$(fzf)"
