@@ -23,6 +23,17 @@ function cd() {
 	done
 	return 0
 }
+
+function obgrab() {
+	local host="$1"
+	local remote_path="$2"
+	local name="${3:-$(basename "$remote_path")}"
+	local dest_dir
+	dest_dir="$(realpath "$HOME/repo/Research/Research/papers and figures")"
+	scp "$host:$remote_path" "$dest_dir/$name"
+}
+
 alias z=cd
 alias fresh="source ~/.zshrc"
+export EDITOR="nvim"
 set -o vi
