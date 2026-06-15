@@ -393,3 +393,67 @@ This isn't always wrong. The alternative (constructing cameras outside robots an
 6. **Verify interface honesty** — does the signature reflect statefulness, side effects, and non-determinism?
 
 Present the refactored code showing what changed and why at each layer.
+
+## Case Study: a dry-run debug export (mechanism returns, policy decides)
+
+A first draft fused scene mutation with persistence in one function — it baked debug
+cameras + grasp-frame axis gizmos into the live USD stage *and* decided to write a
+`.usdz` and a `.npz`:
+
+```python
+# BAD — one function both decorates the scene AND decides the output format/paths
+def export_debug_bundle(runtime, scene, grasp_points, world_poses, render_dir):
+    K = np.load(runtime.intrinsics_path)              # re-loads from disk
+    # ... bake cameras + gizmos into the stage ...
+    usdz = export_subtree_usdz(stage, "/World", render_dir / "debug", "scene")
+    np.savez(render_dir / "debug" / "dryrun.npz", K=K, world_poses=world_poses, ...)
+    return usdz
+```
+
+The seam is right after the last gizmo is added: at that point you have a **complete
+decorated scene**. Everything before is mechanism (give the stage cameras + axes);
+everything after is policy (this particular run wants a USDZ + an npz at these paths).
+Splitting at the seam:
+
+```python
+# MECHANISM — decorate the live stage, return it; no I/O, no output decision
+def decorate_debug_scene(scene, grasp_points, world_poses):
+    left_world = world_poses @ scene.zed.left2rig     # offset owned by the camera object
+    # ... bake /World/DebugCameras/* and /World/DebugGraspFrames/* ...
+    return {"stage": stage, "intrinsics": scene.zed.intrinsics,
+            "world_poses": world_poses, "grasp_world": grasp_world, ...}
+
+# POLICY — decide what to do with the decorated scene
+def export_debug_bundle(info, render_dir):
+    usdz = export_subtree_usdz(info["stage"], "/World", render_dir / "debug", "scene")
+    np.savez(render_dir / "debug" / "dryrun.npz", **persisted_fields(info))
+    return usdz
+```
+
+Three mechanism/policy moves made this clean:
+
+- **The mechanism returns the artifact instead of consuming it.** `decorate_debug_scene`
+  hands back the decorated stage. A different caller can render it in-process, inspect it,
+  or bake more onto it — none of which the export-policy author anticipated. (This is also
+  the [reusable-parts](../reusable-parts/SKILL.md) payoff.)
+- **The decision to skip rendering lives at the caller, not the mechanism.** The whole
+  debug path is gated by one `if runtime.dry_run:` branch in the orchestrator; the real
+  render path never imports the module. The mechanism doesn't know "dry run" exists —
+  that's the caller's policy.
+- **Identity values moved onto the object that owns them.** `K` came from `np.load(path)`
+  (an undeclared input — disk) and the left-camera offset was re-derived as a literal.
+  Both became `ZedMini.intrinsics` / `ZedMini.left2rig`, so the rig geometry and the debug
+  offset are one definition that can't drift.
+
+A fourth move belongs to *both* skills: `move_prims` was the only SE3→prim-pose code, with
+the decomposition (`as_euler('xyz')`) baked into a Replicator-graph call. The dry run needed
+the same pose math statically. Extracting `se3_to_pos_euler` (the shared mechanism) and
+`set_prim_pose(prim_path, pose)` (a prim-path-addressed applier) let both paths reuse the
+identical decomposition. The honesty contract: `set_prim_pose` and `rep.modify.pose` author
+the *same* USD ops (`xformOp:translate` + `xformOp:rotateXYZ`), so the same euler triple
+yields the same world transform — the consistency is structural, not coincidental.
+
+## Related Skills
+
+- [construct-or-inject](../construct-or-inject/SKILL.md) — mechanism/policy applied to object construction. *Which implementation a dependency gets* is a policy decision belonging to the caller; Pattern 3 (caller picks the strategy) and the identity-vs-choice-point test reappear there as the construct-vs-inject boundary (construct what is definitional, inject what is variational), plus the instance-vs-factory rule for how the caller hands the choice over.
+- [fold-knowledge-into-data](../fold-knowledge-into-data/SKILL.md) — once policy is pushed up to the caller, the caller's choices often belong in a table or config rather than branching code.

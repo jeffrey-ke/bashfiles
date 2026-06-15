@@ -139,3 +139,18 @@ This skill is designed to be re-run safely:
 3. Never commit or stage files. Leave them for the user to review.
 4. The Core Beliefs section is always exactly one line: the `/reusable-parts` instruction. Do not add other beliefs.
 5. If re-running on an existing project, the new CLAUDE.md should reflect the *current* state of the code, not the old CLAUDE.md's contents.
+
+## .docs_claude Doc Conventions
+
+Every `.md` file created or updated inside `.docs_claude/` (including plans) **must** begin with a `## Keywords / Tags` section as its very first content, before any headings. Use a bulleted list of lowercase-kebab-case tags. Example:
+
+```markdown
+## Keywords / Tags
+- isaac-sim
+- replicator
+- camera-intrinsics
+- investigation
+- gotchas
+```
+
+Choose tags covering: system/module (e.g. `training-pipeline`, `datagen`, `sam2`), doc type (e.g. `architecture`, `api-reference`, `investigation`, `plan-completed`, `plan-active`, `style-guide`, `gotchas`, `debugging`), and key concepts. Aim for 5–12 tags. This makes docs findable via "has X been done?" or "did we learn anything about Y?" queries.

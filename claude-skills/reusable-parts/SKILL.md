@@ -173,3 +173,60 @@ def recapture_at(robot, cameras, dataset, pose_index):
 - **This composition was never planned by the original author.** `dry_run` and `recapture_at` use the same primitives in arrangements the `collect_dataset` function never anticipated. This is only possible because the parts are truly independent.
 - **Each new composition is also a thin calling sequence.** No new logic is introduced. The functions are just wired together differently.
 - **This is the UNIX payoff.** Independent tools composed via simple scripts. The value isn't in any one function — it's in the fact that you can rearrange them freely.
+
+### Real case study: split a god-export at its seam, share the pose decomposition
+
+A dry-run debug export started as one function that baked debug cameras + grasp-frame axes
+into a live USD stage **and** wrote a `.usdz` + `.npz`:
+
+```python
+# BAD — decoration fused with persistence; you can't get the decorated scene without writing files
+def export_debug_bundle(runtime, scene, grasp_points, world_poses, render_dir):
+    # ... bake cameras + axis gizmos into the stage ...
+    usdz = export_subtree_usdz(stage, "/World", render_dir / "debug", "scene")
+    np.savez(render_dir / "debug" / "dryrun.npz", world_poses=world_poses, ...)
+    return usdz
+```
+
+Apply **test 3 (can the parts be used independently?)**: no — to obtain a decorated scene
+you are forced to write a USDZ and an npz to a specific directory. The natural seam is the
+moment the last gizmo is added: before it is *decorate the scene*, after it is *persist it*.
+
+```python
+# GOOD — mechanism returns the decorated scene; a thin policy persists it
+def decorate_debug_scene(scene, grasp_points, world_poses) -> dict: ...   # no I/O
+def export_debug_bundle(info, render_dir): ...                            # export + savez
+
+# orchestrator is a calling sequence:
+export_debug_bundle(decorate_debug_scene(scene, grasp_points, world_poses), render_dir)
+```
+
+Now `decorate_debug_scene` is reusable in arrangements the export author never planned —
+render the scene in-process, open it in a viewer, or bake more onto it before exporting —
+exactly the "same parts, different compositions" payoff above.
+
+The same review also caught a hidden version of the problem via **test 5 (count the inputs)**.
+`move_prims` was the only place an SE3 became a prim pose; its decomposition
+(`p[:3,3]`, `R.from_matrix(p[:3,:3]).as_euler('xyz')`) only touched the pose matrix out of all
+the Replicator state in scope — a self-contained computation wearing the function as a costume.
+The dry run needed that identical math but *without* a Replicator graph. Extracting it paid off
+immediately:
+
+```python
+def se3_to_pos_euler(pose):                 # the one decomposition, reused by both callers
+    return (pose[:3, 3].tolist(),
+            R.from_matrix(pose[:3, :3]).as_euler('xyz', degrees=True).tolist())
+
+def set_prim_pose(prim_path, pose):         # static applier, prim-path addressed (dry run)
+    t, e = se3_to_pos_euler(pose)
+    set_transform(stage.GetPrimAtPath(prim_path), translation=t, rotation=e)
+
+# move_prims (live capture) now consumes the same primitive instead of a private copy:
+positions, rotations = zip(*(se3_to_pos_euler(p) for p in poses))
+rep.modify.pose(position=rep.distribution.sequence(list(positions)),
+                rotation=rep.distribution.sequence(list(rotations)))
+```
+
+One extracted primitive, two compositions (a batched Replicator graph and a static
+per-prim setter) — and because both reuse the *same* decomposition, the dry-run cameras
+can't drift from where the real capture would place them.

@@ -431,3 +431,8 @@ This is why logic stays stable when data changes. Generic logic doesn't name spe
 Type checking is the same pattern applied to programs themselves. The type checker is generic logic. Your type declarations — field names, types, required vs. optional — are the data it operates on. Add a field to a dataclass; the type checker's logic doesn't change. It re-runs on the new data and propagates the updated authority to every consumer automatically. This is why a dataclass + type checker solves the scattered-schema problem: the declarations become the single source of truth, and enforcement is generic.
 
 The principle has a limit: at some meta-level, the checking logic itself must be grounded in something it doesn't itself validate. The type checker can't type-check itself without circularity. Every validation regime has a foundation it accepts without proof. But within a given level, the principle holds — make correctness declarable as data, and the checking mechanism becomes a stable, reusable tool that never needs to change when the rules do.
+
+## Related Skills
+
+- [construct-or-inject](../construct-or-inject/SKILL.md) — the construction-side counterpart. Case Study 4's registry of classes and the `OPTIMIZERS` table of partials are *tables of factories*: that skill covers when a class should accept such a factory (vs constructor params or a built instance), and which of the factory's params get bound in the table vs passed by the consumer at call time.
+- [separate-mechanism-policy](../separate-mechanism-policy/SKILL.md) — the same separation viewed from the function-design side: knowledge folded into data is policy made declarable, so the remaining logic is pure mechanism.
