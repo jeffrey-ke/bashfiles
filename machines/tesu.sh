@@ -45,3 +45,11 @@ function y() {
 }
 alias fresh="source ~/.bashrc"
 alias fvim="nvim \$(fzf)"
+
+# >>> path registry >>>
+export mpdata='/data/user/jeffk/datasets/mixed-persp'
+export segroot='/home/jeffk/repo/segmentation'
+export vyaml='/home/jeffk/repo/segmentation/src/segmentation/verifier/configs'
+export ycb_obj='/home/jeffk/repo/isaac_datagen/datasets/ycb_dataset'
+export assets='/home/jeffk/repo/isaac_datagen/assets'
+# <<< path registry <<<
