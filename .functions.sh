@@ -500,3 +500,139 @@ notify() {
     printf '\033]9;%s\007' "$1"
   fi
 }
+
+cc() {
+	if [[ $# -lt 1 ]]; then
+		echo "Need a path"
+		echo "Usage: cc path"
+		return 1
+	fi
+	cd "$1" && claude
+}
+
+# --- path registry: machine-specific long-path -> short $var registry ---
+# Mechanism lives here (shared, symlinked). Data lives in a marker block inside
+# machines/<hostname>.sh (git-tracked, already sourced by .bashrc) -> per-machine.
+# A $var expands in ANY position on the command line (unlike an alias) and
+# $name/<TAB> tab-completes subdirs. Register with pp, list pl, remove prm, jump to.
+
+_pr_file() { printf '%s\n' "$HOME/dotfiles/machines/$(hostname -s).sh"; }
+_pr_begin='# >>> path registry >>>'
+_pr_end='# <<< path registry <<<'
+
+# Echo the registered path for $1 (empty if none). Reads only inside the block.
+_pr_get() {
+	local file; file="$(_pr_file)"; [ -f "$file" ] || return 0
+	awk -v b="$_pr_begin" -v e="$_pr_end" -v nm="$1" '
+		$0 == b { inblk=1; next }
+		$0 == e { inblk=0; next }
+		inblk && $0 ~ ("^export " nm "=") {
+			line=$0; sub("^export " nm "=", "", line)
+			gsub(/^'\''|'\''$/, "", line); print line; exit
+		}' "$file"
+}
+
+# Echo registered names, one per line (for completion).
+_pr_names() {
+	local file; file="$(_pr_file)"; [ -f "$file" ] || return 0
+	awk -v b="$_pr_begin" -v e="$_pr_end" '
+		$0 == b { inblk=1; next }
+		$0 == e { inblk=0; next }
+		inblk && /^export [a-zA-Z_][a-zA-Z0-9_]*=/ {
+			line=$0; sub(/^export /, "", line)
+			print substr(line, 1, index(line, "=")-1)
+		}' "$file"
+}
+
+pp() {
+	if [ $# -lt 1 ] || [ $# -gt 2 ]; then
+		echo "Usage: pp <name> [path]   (path defaults to current dir)"; return 1
+	fi
+	local name="$1" raw="${2:-$PWD}"
+	if ! [[ "$name" =~ ^[a-zA-Z_][a-zA-Z0-9_]*$ ]]; then
+		echo "Error: '$name' is not a valid variable name."; return 1
+	fi
+	# Reject non-existent paths: require an existing directory.
+	local path
+	if ! path="$(realpath -e -- "$raw" 2>/dev/null)" || [ ! -d "$path" ]; then
+		echo "Error: '$raw' is not an existing directory."; return 1
+	fi
+	if type "$name" >/dev/null 2>&1; then
+		echo "Warning: '$name' also names a command/alias/function; \$$name still works as a var."
+	fi
+	if [ -n "${!name+set}" ] && [ -z "$(_pr_get "$name")" ]; then
+		echo "Warning: '$name' shadows an existing environment variable."
+	fi
+	export "$name=$path"
+
+	local file; file="$(_pr_file)"
+	if [ ! -f "$file" ]; then
+		mkdir -p -- "$(dirname -- "$file")"; printf '#!/bin/bash\n' > "$file"
+	fi
+	if ! grep -qF -- "$_pr_begin" "$file"; then            # leading \n: machine file may lack a trailing newline
+		printf '\n%s\n%s\n' "$_pr_begin" "$_pr_end" >> "$file"
+	fi
+	local esc="${path//\'/\'\\\'\'}" line
+	line="export $name='$esc'"
+	local tmp; tmp="$(mktemp -- "${file}.XXXXXX")" || return 1
+	awk -v b="$_pr_begin" -v e="$_pr_end" -v nm="$name" -v ln="$line" '
+		$0 == b { inblk=1; print; next }
+		$0 == e { if (inblk && !done) print ln; inblk=0; done=0; print; next }
+		inblk && $0 ~ ("^export " nm "=") { print ln; done=1; next }
+		{ print }' "$file" > "$tmp" && cat -- "$tmp" > "$file"
+	rm -f -- "$tmp"
+	echo "Registered \$$name -> $path"
+	echo "Use anywhere, e.g.: ls \$$name/   cd \$$name   to $name"
+}
+
+pl() {
+	local file; file="$(_pr_file)"
+	if [ ! -f "$file" ] || ! grep -qF -- "$_pr_begin" "$file"; then
+		echo "No paths registered on this machine ($(hostname -s)) yet."
+		echo "Register one with: pp <name> [path]"; return 0
+	fi
+	local pairs
+	pairs="$(awk -v b="$_pr_begin" -v e="$_pr_end" '
+		$0 == b { inblk=1; next }
+		$0 == e { inblk=0; next }
+		inblk && /^export [a-zA-Z_][a-zA-Z0-9_]*=/ {
+			line=$0; sub(/^export /, "", line); eq=index(line,"=")
+			nm=substr(line,1,eq-1); val=substr(line,eq+1)
+			gsub(/^'\''|'\''$/, "", val); printf "%s\t%s\n", nm, val
+		}' "$file")"
+	[ -z "$pairs" ] && { echo "No paths registered on this machine ($(hostname -s)) yet."; return 0; }
+	printf '%s\n' "$pairs" | column -t -s $'\t'
+}
+
+prm() {
+	[ $# -ne 1 ] && { echo "Usage: prm <name>"; return 1; }
+	local name="$1" file; file="$(_pr_file)"
+	if [ ! -f "$file" ] || [ -z "$(_pr_get "$name")" ]; then
+		echo "'$name' is not registered on this machine."; return 1
+	fi
+	unset "$name"
+	local tmp; tmp="$(mktemp -- "${file}.XXXXXX")" || return 1
+	awk -v b="$_pr_begin" -v e="$_pr_end" -v nm="$name" '
+		$0 == b { inblk=1; print; next }
+		$0 == e { inblk=0; print; next }
+		inblk && $0 ~ ("^export " nm "=") { next }
+		{ print }' "$file" > "$tmp" && cat -- "$tmp" > "$file"
+	rm -f -- "$tmp"
+	echo "Removed \$$name from the registry."
+}
+
+to() {
+	[ $# -ne 1 ] && { echo "Usage: to <name>"; return 1; }
+	local name="$1"
+	[ -z "${!name+set}" ] && { echo "Error: \$$name is not set (try: pl)."; return 1; }
+	local target="${!name}"
+	[ ! -d "$target" ] && { echo "Error: \$$name -> '$target' is not a directory."; return 1; }
+	builtin cd -- "$target"        # bypass the zoxide cd() wrapper for a deterministic jump
+}
+
+_pr_complete() {
+	local cur="${COMP_WORDS[COMP_CWORD]}"
+	COMPREPLY=( $(compgen -W "$(_pr_names)" -- "$cur") )
+}
+complete -F _pr_complete to
+complete -F _pr_complete prm
