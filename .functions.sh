@@ -636,3 +636,16 @@ _pr_complete() {
 }
 complete -F _pr_complete to
 complete -F _pr_complete prm
+
+# --- artifact registry: dataset / asset / checkpoint over HF (see `art`) ---
+# Thin wrappers over the `art` tool (~/dotfiles/bin/art, on PATH). Each namespace
+# is one HF repo; `art` reads the nearest .artifacts.yaml up-tree. ls/pull/push.
+dsl(){ art ls dataset; }
+dspull(){ art pull dataset "$@"; }
+dspush(){ art push dataset "$@"; }
+asl(){ art ls asset; }
+aspull(){ art pull asset "$@"; }
+aspush(){ art push asset "$@"; }
+ckl(){ art ls checkpoint; }
+ckpull(){ art pull checkpoint "$@"; }
+ckpush(){ art push checkpoint "$@"; }
