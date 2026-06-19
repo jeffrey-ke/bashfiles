@@ -52,4 +52,7 @@ export segroot='/home/jeffk/repo/segmentation'
 export vyaml='/home/jeffk/repo/segmentation/src/segmentation/verifier/configs'
 export ycb_obj='/home/jeffk/repo/isaac_datagen/datasets/ycb_dataset'
 export assets='/home/jeffk/repo/isaac_datagen/assets'
+export datasets='/data/user/jeffk/datasets'
+export isgen='/home/jeffk/repo/isaac_datagen'
+export propconf='/home/jeffk/repo/reference_matching/src/reference_matching/configs'
 # <<< path registry <<<
