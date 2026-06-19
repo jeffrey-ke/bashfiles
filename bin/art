@@ -1,0 +1,108 @@
+#!/usr/bin/env -S uv run --script
+# /// script
+# requires-python = ">=3.10"
+# dependencies = ["huggingface-hub>=0.25", "pyyaml"]
+# ///
+"""art — generic artifact registry over Hugging Face.
+
+Three namespaces, one private HF repo each:
+    dataset     render umbrellas    (jeffke613/refseg-datasets)
+    asset       sim usdz inputs     (jeffke613/refseg-assets)
+    checkpoint  model weights       (jeffke613/refseg-checkpoints)
+
+Usage:
+    art ls   <ns>
+    art pull <ns> [name ...] [-y]
+    art push <ns> [name ...] [-y]
+
+Config is the nearest .artifacts.yaml walking UP from cwd (git-style), or
+--config <path> / $ART_CONFIG. Each namespace entry is
+    <ns>: {repo: owner/name, dir: <rel path>, require_name?: bool, ignore?: [globs]}
+where `dir` resolves relative to the .artifacts.yaml (so it is cwd-independent).
+A missing file or namespace is a LOUD exit (no silent fallback); the resolved
+(ns, file, repo) is echoed to stderr on every run.
+
+    art pull dataset shelf-optflow   # scoped: datasets are huge (require_name: true)
+    art pull checkpoint              # all weights (require_name: false)
+    art push dataset                 # mirror the whole tree up (incremental)
+    art push asset graspable_objects # push one subtree
+"""
+import os
+import sys
+from pathlib import Path
+
+import yaml
+from huggingface_hub import HfApi, snapshot_download, upload_folder, upload_large_folder
+
+REPO_TYPE = "dataset"  # one HF repo per namespace; dataset-type holds arbitrary files
+
+
+def _find_config(override):
+    if override:
+        p = Path(override).expanduser()
+        if not p.is_file():
+            sys.exit(f"art: --config/ART_CONFIG is not a file: {p}")
+        return p
+    for base in (Path.cwd(), *Path.cwd().parents):
+        p = base / ".artifacts.yaml"
+        if p.is_file():
+            return p
+    sys.exit("art: no .artifacts.yaml found from cwd upward (set --config or $ART_CONFIG)")
+
+
+def _entry(ns, cfg_path):
+    spec = yaml.safe_load(cfg_path.read_text()) or {}
+    if ns not in spec:
+        sys.exit(f"art: namespace {ns!r} not in {cfg_path} (have: {', '.join(spec) or 'none'})")
+    e = spec[ns]
+    repo = e["repo"]
+    print(f"[art: {ns} via {cfg_path} -> {repo}]", file=sys.stderr)
+    return repo, (cfg_path.parent / e["dir"]).resolve(), e.get("require_name", False), e.get("ignore", [])
+
+
+def main():
+    argv = sys.argv[1:]
+    override = os.environ.get("ART_CONFIG")
+    if "--config" in argv:
+        i = argv.index("--config")
+        override = argv[i + 1]
+        del argv[i:i + 2]
+    yes = False
+    for flag in ("-y", "--yes"):
+        if flag in argv:
+            yes = True
+            argv.remove(flag)
+    if len(argv) < 2:
+        sys.exit(__doc__)
+
+    verb, ns, names = argv[0], argv[1], argv[2:]
+    repo, local_dir, require_name, ignore = _entry(ns, _find_config(override))
+    api = HfApi()
+
+    if verb == "ls":
+        for t in api.list_repo_tree(repo, repo_type=REPO_TYPE, recursive=False):
+            print(t.path)
+    elif verb == "pull":
+        if require_name and not names:
+            sys.exit(f"art: {ns} requires a name (repo may be huge) — try `art ls {ns}`")
+        allow = [pat for n in names for pat in (n, f"{n}/**")] or None
+        snapshot_download(repo, repo_type=REPO_TYPE, local_dir=str(local_dir), allow_patterns=allow)
+        print(f"pulled {names or 'ALL'} <- {repo} -> {local_dir}")
+    elif verb == "push":
+        if not yes and input(f"push {names or local_dir} -> {repo}? [y/N] ").strip().lower() not in ("y", "yes"):
+            sys.exit("aborted")
+        api.create_repo(repo, repo_type=REPO_TYPE, private=True, exist_ok=True)
+        if names:
+            for n in names:
+                upload_folder(repo_id=repo, repo_type=REPO_TYPE, folder_path=str(local_dir / n),
+                              path_in_repo=n, ignore_patterns=ignore)
+        else:
+            upload_large_folder(repo_id=repo, repo_type=REPO_TYPE, folder_path=str(local_dir),
+                                ignore_patterns=ignore)
+        print(f"pushed {names or 'ALL'} -> {repo}")
+    else:
+        sys.exit(__doc__)
+
+
+if __name__ == "__main__":
+    main()
