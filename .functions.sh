@@ -494,11 +494,30 @@ trun() {
     echo "Started '$name'. Attach: tmux attach -t $name"
 }
 notify() {
+  # OSC 777 → Ghostty on Mac (works over SSH). Unambiguous vs OSC 9 (ConEmu progress).
+  # Inside tmux, raw OSC is swallowed; DCS passthrough to #{pane_tty} is required
+  # (stdout passthrough alone is unreliable). ST terminator — not BEL — avoids a
+  # false "ping" when macOS suppresses the banner (focused Ghostty window).
+  local body="$1" title="${2:-Terminal}"
   if [ -n "$TMUX" ]; then
-    printf '\033Ptmux;\033\033]9;%s\007\033\\' "$1"
+    local pane_tty seq
+    pane_tty=$(tmux display-message -p '#{pane_tty}' 2>/dev/null)
+    seq=$(printf '\033Ptmux;\033\033]777;notify;%s;%s\033\\\033\\' "$title" "$body")
+    if [ -n "$pane_tty" ] && [ -w "$pane_tty" ]; then
+      printf '%s' "$seq" >"$pane_tty"
+    else
+      printf '%s' "$seq"
+    fi
   else
-    printf '\033]9;%s\007' "$1"
+    printf '\033]777;notify;%s;%s\033\\' "$title" "$body"
   fi
+}
+
+notify-test() {
+  echo "Ghostty must be UNFOCUSED for a banner (macOS hides them when focused)."
+  echo "Also try: System Settings → Notifications → Ghostty → Alerts (not Banners)."
+  echo "Sending via notify() (pane_tty + tmux passthrough)..."
+  notify "Chain test from tesu tmux" "Ghostty"
 }
 
 cc() {
