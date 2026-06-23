@@ -1,4 +1,4 @@
-#!/bin/zsh
+#!/bin/bash
 
 # Function: db
 # Usage: db <image> <tag>
@@ -668,3 +668,6 @@ aspush(){ art push asset "$@"; }
 ckl(){ art ls checkpoint; }
 ckpull(){ art pull checkpoint "$@"; }
 ckpush(){ art push checkpoint "$@"; }
+
+gpu1() { interact -p GPU-shared --gres=gpu:v100-32:1 -t "${1:-1}:00:00"; }
+gpu2() { interact -p GPU-shared --gres=gpu:l40s-48:2 -t "${1:-1}:00:00"; }
