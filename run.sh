@@ -19,9 +19,8 @@ for s in "${sources[@]}"; do
 	fi
 done
 
-if ! grep -q 'machines/.*\.sh' "$BASHRC"; then
-	cat >>"$BASHRC" <<'EOF'
-MACHINE_CONFIG="$HOME/dotfiles/machines/$(hostname -s).sh"
-[ -f "$MACHINE_CONFIG" ] && source "$MACHINE_CONFIG"
-EOF
+# Migrate the old inline machine-config block (exact-hostname only) if present.
+sed -i '/MACHINE_CONFIG/d' "$BASHRC"
+if ! grep -q 'source-machine.sh' "$BASHRC"; then
+	echo '[ -f "$HOME/dotfiles/source-machine.sh" ] && source "$HOME/dotfiles/source-machine.sh"' >>"$BASHRC"
 fi
