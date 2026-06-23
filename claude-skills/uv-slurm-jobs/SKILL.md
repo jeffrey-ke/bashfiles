@@ -1,6 +1,6 @@
 ---
 name: uv-slurm-jobs
-description: Write and debug Slurm/sbatch (or any non-interactive) job scripts that use uv on HPC clusters. Use when creating batch scripts that call `uv run`/`uv pip`, when a command works in an interactive shell but fails under the scheduler, or when diagnosing "uv: command not found", disk-quota errors, or torch "cuda avail: False" inside a job.
+description: Write and debug Slurm/sbatch (or any non-interactive) job scripts that use uv on HPC clusters, including getting Weights & Biases (wandb) working in batch jobs. Use when creating batch scripts that call `uv run`/`uv pip`, when a command works in an interactive shell but fails under the scheduler, or when diagnosing "uv: command not found", disk-quota errors, torch "cuda avail: False", or wandb auth/egress failures inside a job.
 argument-hint: [cluster name or what the job should run]
 allowed-tools: Read, Write, Edit, Bash(sbatch:*), Bash(squeue:*), Bash(sacct:*), Bash(uv:*), Bash(ssh:*), Bash(rsync:*), Bash(scp:*)
 ---
@@ -77,6 +77,37 @@ assert torch.cuda.is_available(), "torch cannot see the GPU"
 
 In a real project use the same `[tool.uv.sources]` + `[[tool.uv.index]]` stanza in `pyproject.toml`. `UV_TORCH_BACKEND=auto` exists but is unreliable for `uv run` and can't bust a cached env — prefer the explicit pin.
 
+## Weights & Biases (wandb) in a batch job
+
+Three things a job doesn't inherit and you must supply. Same disease as `uv` on PATH — credentials and config don't cross into the non-login shell on their own.
+
+1. **wandb must be a dependency.** Add `wandb` to the PEP 723 `dependencies` (or `pyproject.toml`) so `uv run` builds it into the env.
+
+2. **Auth — give the job a credential.** Two ways, both inheritance-free:
+   - `wandb login` once on the cluster → writes `~/.netrc`. Because `~/.netrc` is a file on the shared home FS, the job reads it regardless of shell type (same logic as `uv.toml`). This is the simplest path.
+   - `export WANDB_API_KEY=...` — survives `--export=NONE` if set in-script; good for fully self-contained jobs.
+   With neither, online `wandb.init()` fails on **auth**, not egress — don't confuse the two.
+
+3. **Egress — does the compute node reach `api.wandb.ai`?** Often it does (verified on PSC Bridges-2 2026-06-19: compute nodes reach wandb cloud and sync live). **Test reachability by HTTP status code, never `curl -f`:** `api.wandb.ai` returns `404` on `/` and `405` to a GET on `/graphql` — both *prove* reachability, but `-f` treats any 4xx as failure and reports a false "UNREACHABLE". Correct probe:
+
+   ```bash
+   code=$(curl -sS -m 15 -o /dev/null -w '%{http_code}' https://api.wandb.ai/graphql 2>/dev/null || echo 000)
+   [ "$code" != "000" ] && echo "reachable (HTTP $code)" || echo "no route (000)"
+   ```
+
+   If a cluster genuinely blocks egress (status `000`), use **offline + sync**: run with `WANDB_MODE=offline` (writes `wandb/offline-run-*` to disk), then `wandb sync <run-dir>` from a node that *does* have egress (login/DTN node) — that step needs egress **and** the credential.
+
+4. **Keep wandb state off the home quota.** By default wandb scatters into `~/.cache/wandb`, `~/.config/wandb`, and `./wandb`. Point it at large storage (env vars, inherited via `--export=ALL` or set in-script):
+
+   ```bash
+   export WANDB_DIR=/large/fs/<user>          # run dirs → $WANDB_DIR/wandb/
+   export WANDB_CACHE_DIR=/large/fs/<user>/.wandb-cache
+   export WANDB_DATA_DIR=/large/fs/<user>/.wandb-data
+   export WANDB_CONFIG_DIR=/large/fs/<user>/.wandb-config
+   ```
+
+   Verify nothing leaked: after a run, `find ~/.cache/wandb ~/.config/wandb ~/wandb 2>/dev/null` should be empty.
+
 ## Diagnostic preamble (worth it on any new setup)
 
 Make failed assumptions show at the TOP of the log, not as a cryptic error 50 lines down:
@@ -105,6 +136,7 @@ echo "CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES:-<unset>}"   # "0" = ONE gpu (
 3. **`torch ... cuda avail : False` on a healthy GPU.** uv pulled `torch+cu130` (CUDA 13.0) but the driver was 560/CUDA 12.6 → major-version mismatch. → pin `cu126` (above). `module load cuda` does **not** help.
 4. **Pinning torch "didn't work" — same version reappeared.** uv **reused the cached PEP 723 env** (env-var change isn't part of its cache key). → change the script's declared deps (the index pin does this) and/or `uv run --refresh-package torch ...`.
 5. **`rsync: command not found` to the cluster.** The *remote* end ran in a non-login/non-interactive shell on the **login node**, where `rsync` wasn't on PATH. → use the **Data Transfer Node** host, `--rsync-path=/full/path/rsync`, or `scp -r` / `tar | ssh`.
+6. **"wandb cloud UNREACHABLE from compute node" — but it wasn't.** Egress check used `curl -sSf https://api.wandb.ai/`; the root path returns `404`, and `-f` turned that successful connection into a non-zero exit → false negative that wrongly concluded "compute nodes are firewalled, must use offline+sync". Compounded by no credential, so `wandb.init` was skipped and egress was never actually exercised. → test reachability by status code (not `-f`), and confirm with a real online `wandb.init()` once a credential exists.
 
 ## How to test
 
