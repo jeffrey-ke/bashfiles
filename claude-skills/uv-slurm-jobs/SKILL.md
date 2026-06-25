@@ -258,6 +258,23 @@ squeue -p GPU-shared -t PENDING  -o "%b" | grep -c "l40s"    # jobs already queu
    rather than fully `alloc`. Corollary: a **GPU-only allocation** (e.g. PSC `cis260205p` has no
    RM/CPU access) must grab ≥1 GPU even for a trivial logging job — there is no free CPU partition to
    fall back to.
+8. **Host-side `uv run` silently corrupted a container-built `.venv`.** A containerized job's `.venv`
+   lived on shared disk (so a GPU job could reuse it) but was **built inside the container** —
+   `manylinux_2_35` wheels + container interpreter. To run an ad-hoc HF query I did `uv run --with
+   huggingface-hub …` from **inside the project dir on the host**. `uv run` is project-aware and
+   *mutating*. The subtle trap: host and container both had a Python at the **same path**
+   `/usr/bin/python3.11` but **different versions** (host 3.11.9 / uv 0.11.21 vs container 3.11.0rc1 /
+   uv 0.11.23). The venv was built in-container (records 3.11.0rc1); host project-mode uv saw the
+   interpreter at that path is actually 3.11.9, judged the venv **stale and tried to recreate it** —
+   tearing down `.venv/lib`, then failing partway (`failed to remove .venv/lib: Permission denied`),
+   leaving it broken for *both* host and container (and the wheels are glibc-2.35 anyway, so a host
+   rebuild would be wrong-ABI regardless). The next in-container `uv run --no-sync` died trying to repair it; the render produced 0
+   frames (and the job falsely reported `COMPLETED` because the sbatch didn't propagate the inner exit
+   code). → **Manage a container-built venv ONLY in-container** (`singularity exec … uv sync --locked`
+   / `uv run --no-sync`). For throwaway host-side Python, **isolate from the project** so uv never
+   adopts it: `uv run --no-project --with <pkg> …`, a PEP-723 `uv run --script`, or run from `/tmp`.
+   Fix once corrupted: delete `.venv`, rebuild in-container. Also: end the sbatch with
+   `rc=$?; …; exit $rc` so a failed `uv run` can't masquerade as `COMPLETED 0:0`.
 
 ## How to test
 
