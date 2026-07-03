@@ -1,0 +1,125 @@
+#!/usr/bin/env -S uv run --script
+# /// script
+# requires-python = ">=3.10"
+# dependencies = ["pyyaml"]
+# ///
+"""run — name-keyed training-run registry over rsync/ssh remotes (sibling of `art`).
+
+A training run lives under <dir>/<name>/ (config.yaml, hparams.yaml, git_commit.txt, metrics.csv,
+*.patch, checkpoints/**; sweep umbrellas nest one level: <name>/<arm>/...). This pushes/pulls that
+history to a remote so any machine sharing the remote can fetch a run pushed from elsewhere. It
+deliberately skips wandb/ (canonical copy is in the wandb cloud) and viz/ (regenerable from ckpts).
+
+Usage:
+    run list <remote>                 annotated table of runs on the remote (ckpt size + local?)
+    run pull <remote> <name ...> [-n] fetch run history  <- remote   (-n / rsync flags pass through)
+    run push <remote> <name ...> [-n] push run history   -> remote
+
+Remotes are defined in the nearest .runs.yaml walking UP from cwd, or --config <path> / $RUN_CONFIG:
+    <remote>: {host: <ssh alias>, root: <remote abs path>, dir: <ws-relative runs dir>}
+`dir` resolves relative to the .runs.yaml (cwd-independent) and is workspace-relative, so the local
+tree (<yaml parent>/<dir>/<name>) and the remote tree (<root>/<dir>/<name>) share the same suffix.
+A missing file or remote is a LOUD exit; the resolved (remote, file, host:root/dir) echoes to stderr.
+
+    run push psc m2ffix         # push one run (or sweep umbrella) up
+    run pull psc m2ffix -n      # dry-run preview of the pull
+"""
+import os
+import subprocess
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))  # -> real dotfiles/bin, not the ~/.local/bin symlink
+import registry  # noqa: E402  shared walk-up YAML registry mechanism (see registry.py)
+
+# rsync filter: prune wandb/ + viz/ FIRST, then allow directory recursion (so sweep umbrellas like
+# m2ffix/<arm>/ are descended into), then keep the history files at any depth, drop everything else.
+# -m prunes the empty dir shells the '*/' include would otherwise leave behind. Unanchored basenames
+# (hparams.yaml, ...) match at any depth, so nested sweep arms sync correctly (the old sync-run-*.sh
+# scripts dropped them: their trailing --exclude='*' pruned <arm>/ before rsync could descend).
+FILTER = [
+    "--exclude=wandb/", "--exclude=viz/",
+    "--include=*/",
+    "--include=config.yaml", "--include=hparams.yaml", "--include=git_commit.txt",
+    "--include=metrics.csv", "--include=*.patch", "--include=checkpoints/**",
+    "--exclude=*",
+]
+
+
+def _sync(passthrough, src, dst):
+    subprocess.run(["rsync", "-avP", "-m", *passthrough, *FILTER, src, dst], check=True)
+
+
+def _do_list(host, root, rel, local_dir):
+    # One ssh round-trip: per-run total size under the runs dir (du counts only what was synced up,
+    # i.e. history + checkpoints). Then a local scandir for the ✓/– present marker.
+    out = subprocess.run(
+        ["ssh", host, f"cd {root}/{rel} 2>/dev/null && du -sh -- */ 2>/dev/null"],
+        capture_output=True, text=True,
+    ).stdout
+    rows = []
+    for line in out.splitlines():
+        size, _, name = line.partition("\t")
+        name = name.strip().rstrip("/")
+        if not name:
+            continue
+        present = "✓" if (local_dir / name).exists() else "–"
+        rows.append((name, size.strip(), present))
+    if not rows:
+        print(f"no runs on {host}:{root}/{rel}")
+        return
+    rows.sort()
+    w = max(len(r[0]) for r in rows)
+    ws = max(len(r[1]) for r in rows)
+    print(f"{'RUN':<{w}}  {'CKPT':<{ws}}  LOCAL")
+    for name, size, present in rows:
+        print(f"{name:<{w}}  {size:<{ws}}  {present}")
+
+
+def main():
+    argv = sys.argv[1:]
+    if len(argv) < 2:
+        sys.exit(__doc__)
+    # find_config consumes --config in place, so resolve it before splitting verb/remote/names.
+    cfg = registry.find_config(".runs.yaml", "RUN_CONFIG", argv)
+    if len(argv) < 2:
+        sys.exit(__doc__)
+
+    verb, remote, rest = argv[0], argv[1], argv[2:]
+    e = registry.entry(cfg, remote, "run")
+    host, root, rel = e["host"], e["root"], e["dir"]
+    local_dir = registry.resolve_dir(cfg, e)
+    print(f"[run: {remote} via {cfg} -> {host}:{root}/{rel}]", file=sys.stderr)
+
+    if verb == "list":
+        _do_list(host, root, rel, local_dir)
+        return
+
+    if verb not in ("push", "pull"):
+        sys.exit(__doc__)
+
+    names = [a for a in rest if not a.startswith("-")]
+    passthrough = [a for a in rest if a.startswith("-")]
+    if not names:
+        sys.exit(f"run: {verb} requires a run name (runs are large) — try `run list {remote}`")
+    dry = any(a in ("-n", "--dry-run") for a in passthrough)
+
+    for name in names:
+        local = local_dir / name
+        remote_path = f"{host}:{root}/{rel}/{name}"
+        if verb == "push":
+            if not local.is_dir():
+                sys.exit(f"run: no such local run: {local}")
+            # rsync only mkdirs the final leaf; pre-create the parent (idempotent), unless dry-run.
+            if not dry:
+                subprocess.run(["ssh", host, "mkdir", "-p", f"{root}/{rel}/{name}"], check=True)
+            print(f"=== push {name} -> {remote_path}/ (skipping wandb/ + viz/) ===")
+            _sync(passthrough, f"{local}/", f"{remote_path}/")
+        else:  # pull
+            os.makedirs(local, exist_ok=True)
+            print(f"=== pull {name} <- {remote_path}/ (skipping wandb/ + viz/) ===")
+            _sync(passthrough, f"{remote_path}/", f"{local}/")
+
+
+if __name__ == "__main__":
+    main()

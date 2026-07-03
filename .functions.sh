@@ -669,5 +669,11 @@ ckl(){ art ls checkpoint; }
 ckpull(){ art pull checkpoint "$@"; }
 ckpush(){ art push checkpoint "$@"; }
 
+# --- run registry: training runs over PSC rsync/ssh (see `run`, sibling of `art`) ---
+# Thin wrappers over the `run` tool (~/dotfiles/bin/run, on PATH). One remote (psc) in .runs.yaml.
+rls(){ run list psc; }
+rpull(){ run pull psc "$@"; }
+rpush(){ run push psc "$@"; }
+
 gpu1() { interact -p GPU-shared --gres=gpu:v100-32:1 -t "${1:-1}:00:00"; }
 gpu2() { interact -p GPU-shared --gres=gpu:l40s-48:2 -t "${1:-1}:00:00"; }

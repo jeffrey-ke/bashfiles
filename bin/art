@@ -27,46 +27,19 @@ A missing file or namespace is a LOUD exit (no silent fallback); the resolved
     art push dataset                 # mirror the whole tree up (incremental)
     art push asset graspable_objects # push one subtree
 """
-import os
 import sys
 from pathlib import Path
 
-import yaml
-from huggingface_hub import HfApi, snapshot_download, upload_folder, upload_large_folder
+sys.path.insert(0, str(Path(__file__).resolve().parent))  # -> real dotfiles/bin, not the ~/.local/bin symlink
+import registry  # noqa: E402  shared walk-up YAML registry mechanism (see registry.py)
+
+from huggingface_hub import HfApi, snapshot_download, upload_folder, upload_large_folder  # noqa: E402
 
 REPO_TYPE = "dataset"  # one HF repo per namespace; dataset-type holds arbitrary files
 
 
-def _find_config(override):
-    if override:
-        p = Path(override).expanduser()
-        if not p.is_file():
-            sys.exit(f"art: --config/ART_CONFIG is not a file: {p}")
-        return p
-    for base in (Path.cwd(), *Path.cwd().parents):
-        p = base / ".artifacts.yaml"
-        if p.is_file():
-            return p
-    sys.exit("art: no .artifacts.yaml found from cwd upward (set --config or $ART_CONFIG)")
-
-
-def _entry(ns, cfg_path):
-    spec = yaml.safe_load(cfg_path.read_text()) or {}
-    if ns not in spec:
-        sys.exit(f"art: namespace {ns!r} not in {cfg_path} (have: {', '.join(spec) or 'none'})")
-    e = spec[ns]
-    repo = e["repo"]
-    print(f"[art: {ns} via {cfg_path} -> {repo}]", file=sys.stderr)
-    return repo, (cfg_path.parent / e["dir"]).resolve(), e.get("require_name", False), e.get("ignore", [])
-
-
 def main():
     argv = sys.argv[1:]
-    override = os.environ.get("ART_CONFIG")
-    if "--config" in argv:
-        i = argv.index("--config")
-        override = argv[i + 1]
-        del argv[i:i + 2]
     yes = False
     for flag in ("-y", "--yes"):
         if flag in argv:
@@ -74,9 +47,17 @@ def main():
             argv.remove(flag)
     if len(argv) < 2:
         sys.exit(__doc__)
+    # find_config consumes --config in place, so resolve it before splitting verb/ns/names;
+    # re-check length in case --config was the only reason argv looked long enough.
+    cfg = registry.find_config(".artifacts.yaml", "ART_CONFIG", argv)
+    if len(argv) < 2:
+        sys.exit(__doc__)
 
     verb, ns, names = argv[0], argv[1], argv[2:]
-    repo, local_dir, require_name, ignore = _entry(ns, _find_config(override))
+    e = registry.entry(cfg, ns, "art")
+    repo, local_dir = e["repo"], registry.resolve_dir(cfg, e)
+    require_name, ignore = e.get("require_name", False), e.get("ignore", [])
+    print(f"[art: {ns} via {cfg} -> {repo}]", file=sys.stderr)
     api = HfApi()
 
     if verb == "ls":
