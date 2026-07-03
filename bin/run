@@ -11,10 +11,12 @@ history to a remote so any machine sharing the remote can fetch a run pushed fro
 deliberately skips wandb/ (canonical copy is in the wandb cloud) and viz/ (regenerable from ckpts).
 
 Usage:
-    run list <remote> [--size]        table of runs on the remote (name + mtime + local?);
-                                      --size adds a CKPT column (recursive, ~20s over Lustre)
+    run list <remote> [name] [--size] table of entries (name + KIND + mtime + local?); each is a
+                                      leaf `run` or a `sweep` (folder-of-runs). Pass a sweep name to
+                                      drill into its arms. --size adds a CKPT column (~20s/Lustre).
     run pull <remote> <name ...> [-n] fetch run history  <- remote   (-n / rsync flags pass through)
     run push <remote> <name ...> [-n] push run history   -> remote
+                                      <name> may be a sweep arm, e.g. m2f-fullgrid-hpo-v3/t40
 
 All remote I/O is rsync (list/size via `rsync --list-only`, path creation via `--mkpath`) — never a
 raw `ssh <host> <cmd>`, since a PSC Data Transfer Node allows rsync but rejects arbitrary commands.
@@ -81,19 +83,31 @@ def _parse(line):
     return parts if len(parts) == 5 else None
 
 
-def _do_list(host, root, rel, local_dir, want_size):
-    base = f"{host}:{root}/{rel}/"
-    # Shallow list (instant, ~0.1s): run dirs + their mtime. Skip the '.' self-entry and top-level
-    # files (e.g. Optuna .journal study DBs).
+def _do_list(host, root, rel, sub, local_dir, want_size):
+    rel_full = f"{rel}/{sub}" if sub else rel
+    base = f"{host}:{root}/{rel_full}/"
+    local_base = local_dir / sub if sub else local_dir
+    # Shallow list (instant, ~0.1s): immediate child dirs + mtime. Skip the '.' self-entry and
+    # top-level files (e.g. Optuna .journal study DBs).
     dirs = [(p[4], p[2]) for line in _rsync_list([base]).splitlines()
             if (p := _parse(line)) and p[0].startswith("d") and p[4] != "."]
     if not dirs:
         print(f"no runs on {base}")
         return
-    # Ckpt size is opt-in (--size): it costs a checkpoints-filtered recursive list (~20s over
-    # Lustre). Prune wandb/ + viz/ FIRST so rsync doesn't walk each run's thousands of media/log
-    # files. Sum by top path component so flat runs (<name>/checkpoints) and sweep umbrellas
-    # (<name>/<arm>/checkpoints) both attribute correctly.
+    # Leaf run vs sweep umbrella: a child is a leaf *run* if it DIRECTLY holds hparams.yaml
+    # (Lightning writes one per run); otherwise it is a folder-of-runs (a sweep, e.g.
+    # m2f-fullgrid-hpo-v3/t0..t90) — drill in with `run list <remote> <name>`, pull one arm with
+    # `run pull <remote> <name>/<arm>`. 1-level probe, prunes wandb/viz so it stays cheap.
+    leaves = set()
+    for line in _rsync_list(["-r", "--exclude=wandb/", "--exclude=viz/",
+                             "--include=/*/", "--include=/*/hparams.yaml", "--exclude=*",
+                             base]).splitlines():
+        p = _parse(line)
+        if p and p[0].startswith("-") and p[4].endswith("hparams.yaml"):
+            leaves.add(p[4].split("/", 1)[0])
+    # Ckpt size is opt-in (--size): a checkpoints-filtered recursive list (~20s over Lustre; prune
+    # wandb/viz so rsync skips each run's thousands of media/log files). Summed by top path
+    # component so a leaf run and a whole sweep (all its arms' checkpoints) both attribute.
     ckpt = {}
     if want_size:
         for line in _rsync_list(["-r", "--exclude=wandb/", "--exclude=viz/", "--include=*/",
@@ -102,15 +116,16 @@ def _do_list(host, root, rel, local_dir, want_size):
             if p and p[0].startswith("-"):
                 top = p[4].split("/", 1)[0]
                 ckpt[top] = ckpt.get(top, 0) + int(p[1].replace(",", ""))
-    rows = [(n, date, _human(ckpt[n]) if n in ckpt else ("—" if want_size else ""),
-             "✓" if (local_dir / n).exists() else "–") for n, date in sorted(dirs)]
+    rows = [(n, "run" if n in leaves else "sweep", date,
+             _human(ckpt[n]) if n in ckpt else ("—" if want_size else ""),
+             "✓" if (local_base / n).exists() else "–") for n, date in sorted(dirs)]
     w = max(len(r[0]) for r in rows)
-    ws = max((len(r[2]) for r in rows), default=4)
+    ws = max((len(r[3]) for r in rows), default=4)
     size_hdr = f"{'CKPT':>{ws}}  " if want_size else ""
-    print(f"{'RUN':<{w}}  {'MTIME':<10}  {size_hdr}LOCAL")
-    for n, date, c, present in rows:
-        size_col = f"{c:>{ws}}  " if want_size else ""
-        print(f"{n:<{w}}  {date:<10}  {size_col}{present}")
+    print(f"{'RUN':<{w}}  {'KIND':<5}  {'MTIME':<10}  {size_hdr}LOCAL")
+    for n, kind, date, size, present in rows:
+        size_col = f"{size:>{ws}}  " if want_size else ""
+        print(f"{n:<{w}}  {kind:<5}  {date:<10}  {size_col}{present}")
 
 
 def main():
@@ -129,8 +144,9 @@ def main():
     print(f"[run: {remote} via {cfg} -> {host}:{root}/{rel}]", file=sys.stderr)
 
     if verb == "list":
+        subs = [a for a in rest if not a.startswith("-")]
         want_size = any(a in ("--size", "-s") for a in rest)
-        _do_list(host, root, rel, local_dir, want_size)
+        _do_list(host, root, rel, subs[0] if subs else "", local_dir, want_size)
         return
 
     if verb not in ("push", "pull"):
