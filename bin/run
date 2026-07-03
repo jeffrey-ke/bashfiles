@@ -11,12 +11,16 @@ history to a remote so any machine sharing the remote can fetch a run pushed fro
 deliberately skips wandb/ (canonical copy is in the wandb cloud) and viz/ (regenerable from ckpts).
 
 Usage:
-    run list <remote>                 annotated table of runs on the remote (ckpt size + local?)
+    run list <remote> [--size]        table of runs on the remote (name + mtime + local?);
+                                      --size adds a CKPT column (recursive, ~20s over Lustre)
     run pull <remote> <name ...> [-n] fetch run history  <- remote   (-n / rsync flags pass through)
     run push <remote> <name ...> [-n] push run history   -> remote
 
+All remote I/O is rsync (list/size via `rsync --list-only`, path creation via `--mkpath`) — never a
+raw `ssh <host> <cmd>`, since a PSC Data Transfer Node allows rsync but rejects arbitrary commands.
+
 Remotes are defined in the nearest .runs.yaml walking UP from cwd, or --config <path> / $RUN_CONFIG:
-    <remote>: {host: <ssh alias>, root: <remote abs path>, dir: <ws-relative runs dir>}
+    <remote>: {host: <rsync ssh alias>, root: <remote abs path>, dir: <ws-relative runs dir>}
 `dir` resolves relative to the .runs.yaml (cwd-independent) and is workspace-relative, so the local
 tree (<yaml parent>/<dir>/<name>) and the remote tree (<root>/<dir>/<name>) share the same suffix.
 A missing file or remote is a LOUD exit; the resolved (remote, file, host:root/dir) echoes to stderr.
@@ -47,33 +51,66 @@ FILTER = [
 
 
 def _sync(passthrough, src, dst):
+    # rsync auto-creates the final leaf dir (<name>/) when its parent exists; the remote
+    # <root>/<dir> (segmentation/runs) already exists on the hub, so no `ssh mkdir` is needed
+    # (the DTN would reject it anyway, and PSC's rsync 3.1.3 predates --mkpath).
     subprocess.run(["rsync", "-avP", "-m", *passthrough, *FILTER, src, dst], check=True)
 
 
-def _do_list(host, root, rel, local_dir):
-    # One ssh round-trip: per-run total size under the runs dir (du counts only what was synced up,
-    # i.e. history + checkpoints). Then a local scandir for the ✓/– present marker.
-    out = subprocess.run(
-        ["ssh", host, f"cd {root}/{rel} 2>/dev/null && du -sh -- */ 2>/dev/null"],
-        capture_output=True, text=True,
-    ).stdout
-    rows = []
-    for line in out.splitlines():
-        size, _, name = line.partition("\t")
-        name = name.strip().rstrip("/")
-        if not name:
-            continue
-        present = "✓" if (local_dir / name).exists() else "–"
-        rows.append((name, size.strip(), present))
-    if not rows:
-        print(f"no runs on {host}:{root}/{rel}")
+def _rsync_list(args):
+    # `run` talks ONLY over rsync: PSC's DTN allows the rsync binary but rejects arbitrary ssh
+    # ("Login denied: ... is not an allowed command"), so listing/sizing uses `rsync --list-only`,
+    # not `ssh du`. Fail loud on a nonzero rc so a dead socket / bad path never reads as "no runs".
+    r = subprocess.run(["rsync", "--list-only", *args], capture_output=True, text=True)
+    if r.returncode != 0:
+        sys.exit(f"run: rsync --list-only failed (rc={r.returncode}):\n{r.stderr.strip()}")
+    return r.stdout
+
+
+def _human(n):
+    x = float(n)
+    for unit in ("B", "K", "M", "G", "T"):
+        if x < 1024 or unit == "T":
+            return f"{x:.0f}{unit}" if unit == "B" else f"{x:.1f}{unit}"
+        x /= 1024
+
+
+def _parse(line):
+    # rsync --list-only row: "<perms> <size> <date> <time> <name>" (size has thousands commas).
+    parts = line.split(None, 4)
+    return parts if len(parts) == 5 else None
+
+
+def _do_list(host, root, rel, local_dir, want_size):
+    base = f"{host}:{root}/{rel}/"
+    # Shallow list (instant, ~0.1s): run dirs + their mtime. Skip the '.' self-entry and top-level
+    # files (e.g. Optuna .journal study DBs).
+    dirs = [(p[4], p[2]) for line in _rsync_list([base]).splitlines()
+            if (p := _parse(line)) and p[0].startswith("d") and p[4] != "."]
+    if not dirs:
+        print(f"no runs on {base}")
         return
-    rows.sort()
+    # Ckpt size is opt-in (--size): it costs a checkpoints-filtered recursive list (~20s over
+    # Lustre). Prune wandb/ + viz/ FIRST so rsync doesn't walk each run's thousands of media/log
+    # files. Sum by top path component so flat runs (<name>/checkpoints) and sweep umbrellas
+    # (<name>/<arm>/checkpoints) both attribute correctly.
+    ckpt = {}
+    if want_size:
+        for line in _rsync_list(["-r", "--exclude=wandb/", "--exclude=viz/", "--include=*/",
+                                 "--include=checkpoints/***", "--exclude=*", base]).splitlines():
+            p = _parse(line)
+            if p and p[0].startswith("-"):
+                top = p[4].split("/", 1)[0]
+                ckpt[top] = ckpt.get(top, 0) + int(p[1].replace(",", ""))
+    rows = [(n, date, _human(ckpt[n]) if n in ckpt else ("—" if want_size else ""),
+             "✓" if (local_dir / n).exists() else "–") for n, date in sorted(dirs)]
     w = max(len(r[0]) for r in rows)
-    ws = max(len(r[1]) for r in rows)
-    print(f"{'RUN':<{w}}  {'CKPT':<{ws}}  LOCAL")
-    for name, size, present in rows:
-        print(f"{name:<{w}}  {size:<{ws}}  {present}")
+    ws = max((len(r[2]) for r in rows), default=4)
+    size_hdr = f"{'CKPT':>{ws}}  " if want_size else ""
+    print(f"{'RUN':<{w}}  {'MTIME':<10}  {size_hdr}LOCAL")
+    for n, date, c, present in rows:
+        size_col = f"{c:>{ws}}  " if want_size else ""
+        print(f"{n:<{w}}  {date:<10}  {size_col}{present}")
 
 
 def main():
@@ -92,7 +129,8 @@ def main():
     print(f"[run: {remote} via {cfg} -> {host}:{root}/{rel}]", file=sys.stderr)
 
     if verb == "list":
-        _do_list(host, root, rel, local_dir)
+        want_size = any(a in ("--size", "-s") for a in rest)
+        _do_list(host, root, rel, local_dir, want_size)
         return
 
     if verb not in ("push", "pull"):
@@ -102,7 +140,6 @@ def main():
     passthrough = [a for a in rest if a.startswith("-")]
     if not names:
         sys.exit(f"run: {verb} requires a run name (runs are large) — try `run list {remote}`")
-    dry = any(a in ("-n", "--dry-run") for a in passthrough)
 
     for name in names:
         local = local_dir / name
@@ -110,9 +147,7 @@ def main():
         if verb == "push":
             if not local.is_dir():
                 sys.exit(f"run: no such local run: {local}")
-            # rsync only mkdirs the final leaf; pre-create the parent (idempotent), unless dry-run.
-            if not dry:
-                subprocess.run(["ssh", host, "mkdir", "-p", f"{root}/{rel}/{name}"], check=True)
+            # rsync --mkpath (in _sync) creates root/rel/<name>/ — the DTN forbids `ssh mkdir`.
             print(f"=== push {name} -> {remote_path}/ (skipping wandb/ + viz/) ===")
             _sync(passthrough, f"{local}/", f"{remote_path}/")
         else:  # pull
