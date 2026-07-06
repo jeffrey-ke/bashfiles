@@ -44,10 +44,16 @@ def find_config(filename, env_var, argv):
 def entry(cfg_path, key, label):
     """The spec[key] dict from cfg_path; fail-loud if the key is absent. Target/echo formatting
     (which repo, which host) stays in the calling tool — this only proves the key exists."""
-    spec = yaml.safe_load(cfg_path.read_text()) or {}
+    spec = all_entries(cfg_path)
     if key not in spec:
         sys.exit(f"{label}: {key!r} not in {cfg_path} (have: {', '.join(spec) or 'none'})")
     return spec[key]
+
+
+def all_entries(cfg_path):
+    """Every remote->spec entry in cfg_path (not just one key) — for callers that must reason
+    across all registered remotes, e.g. `run local`'s no-remote-given auto-detect."""
+    return yaml.safe_load(cfg_path.read_text()) or {}
 
 
 def resolve_dir(cfg_path, e):

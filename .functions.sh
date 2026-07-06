@@ -674,6 +674,7 @@ ckpush(){ art push checkpoint "$@"; }
 rls(){ run list psc; }
 rpull(){ run pull psc "$@"; }
 rpush(){ run push psc "$@"; }
+rlocal(){ run local "$@"; }
 
 gpu1() { interact -p GPU-shared --gres=gpu:v100-32:1 -t "${1:-1}:00:00"; }
 gpu2() { interact -p GPU-shared --gres=gpu:l40s-48:2 -t "${1:-1}:00:00"; }

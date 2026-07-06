@@ -6,14 +6,22 @@
 """run — name-keyed training-run registry over rsync/ssh remotes (sibling of `art`).
 
 A training run lives under <dir>/<name>/ (config.yaml, hparams.yaml, git_commit.txt, metrics.csv,
-*.patch, checkpoints/**; sweep umbrellas nest one level: <name>/<arm>/...). This pushes/pulls that
-history to a remote so any machine sharing the remote can fetch a run pushed from elsewhere. It
-deliberately skips wandb/ (canonical copy is in the wandb cloud) and viz/ (regenerable from ckpts).
+descriptor.yaml, *.patch, checkpoints/**; sweep umbrellas nest one level: <name>/<arm>/...). This
+pushes/pulls that history to a remote so any machine sharing the remote can fetch a run pushed from
+elsewhere. It deliberately skips wandb/ (canonical copy is in the wandb cloud) and viz/ (regenerable
+from ckpts).
 
 Usage:
     run list <remote> [name] [--size] table of entries (name + KIND + mtime + local?); each is a
                                       leaf `run` or a `sweep` (folder-of-runs). Pass a sweep name to
                                       drill into its arms. --size adds a CKPT column (~20s/Lustre).
+    run local [remote] [name] [--size] [--paths]  same table, sourced from local disk only — no
+                                      network. Remote is optional when every configured remote shares
+                                      one local dir (the common case); pass one explicitly if they
+                                      diverge. --paths prints bare abs paths, one per row (for pipes).
+    run path [remote] <name>          print the abs local dir of one run to stdout — the composable
+                                      handle other tools consume, e.g.
+                                      `seg-model create t40 --from-run $(run path hpo-v3/t40)`.
     run pull <remote> <name ...> [-n] fetch run history  <- remote   (-n / rsync flags pass through)
     run push <remote> <name ...> [-n] push run history   -> remote
                                       <name> may be a sweep arm, e.g. m2f-fullgrid-hpo-v3/t40
@@ -29,10 +37,15 @@ A missing file or remote is a LOUD exit; the resolved (remote, file, host:root/d
 
     run push psc m2ffix         # push one run (or sweep umbrella) up
     run pull psc m2ffix -n      # dry-run preview of the pull
+
+Composing with seg-model (a run dir is self-describing: checkpoints/ + descriptor.yaml):
+    seg-model create t40 --from-run $(run path m2f-fullgrid-hpo-v3/t40)
+    run local --paths | fzf | xargs seg-model create t40 --from-run
 """
 import os
 import subprocess
 import sys
+from datetime import datetime
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))  # -> real dotfiles/bin, not the ~/.local/bin symlink
@@ -47,7 +60,8 @@ FILTER = [
     "--exclude=wandb/", "--exclude=viz/",
     "--include=*/",
     "--include=config.yaml", "--include=hparams.yaml", "--include=git_commit.txt",
-    "--include=metrics.csv", "--include=*.patch", "--include=checkpoints/**",
+    "--include=metrics.csv", "--include=descriptor.yaml", "--include=*.patch",
+    "--include=checkpoints/**",
     "--exclude=*",
 ]
 
@@ -65,6 +79,9 @@ def _rsync_list(args):
     # not `ssh du`. Fail loud on a nonzero rc so a dead socket / bad path never reads as "no runs".
     r = subprocess.run(["rsync", "--list-only", *args], capture_output=True, text=True)
     if r.returncode != 0:
+        if "No such file or directory" in r.stderr:
+            sys.exit(f"run: remote path does not exist: {args[-1]}\n"
+                     "     (a worktree remote may have been removed — check .runs.yaml)")
         sys.exit(f"run: rsync --list-only failed (rc={r.returncode}):\n{r.stderr.strip()}")
     return r.stdout
 
@@ -128,16 +145,88 @@ def _do_list(host, root, rel, sub, local_dir, want_size):
         print(f"{n:<{w}}  {kind:<5}  {date:<10}  {size_col}{present}")
 
 
+def _mtime(p):
+    return datetime.fromtimestamp(p.stat().st_mtime).strftime("%Y/%m/%d")
+
+
+def _do_local(local_dir, sub, want_size, want_paths=False):
+    base = local_dir / sub if sub else local_dir
+    if not base.is_dir():
+        sys.exit(f"run: no local runs dir: {base}")
+    # Same "d" vs "-" distinction the remote --list-only path makes (skip sibling files like
+    # <study>.journal) — just via os.scandir instead of parsing rsync rows.
+    dirs = [(p.name, _mtime(p)) for p in base.iterdir() if p.is_dir()]
+    if not dirs:
+        print(f"no local runs under {base}", file=sys.stderr if want_paths else sys.stdout)
+        return
+    if want_paths:  # bare abs paths, no header — stdout stays clean for pipes / fzf / xargs
+        for n, _ in sorted(dirs):
+            print(base / n)
+        return
+    # Leaf run vs sweep umbrella: identical 1-level hparams.yaml probe to _do_list, just local.
+    leaves = {n for n, _ in dirs if (base / n / "hparams.yaml").is_file()}
+    ckpt = {}
+    if want_size:
+        for n, _ in dirs:
+            total = sum(f.stat().st_size for f in (base / n).rglob("checkpoints/**/*") if f.is_file())
+            if total:
+                ckpt[n] = total
+    rows = [(n, "run" if n in leaves else "sweep", date,
+             _human(ckpt[n]) if n in ckpt else ("—" if want_size else ""))
+            for n, date in sorted(dirs)]
+    w = max(len(r[0]) for r in rows)
+    ws = max((len(r[3]) for r in rows), default=4)
+    size_hdr = f"{'CKPT':>{ws}}  " if want_size else ""
+    print(f"{'RUN':<{w}}  {'KIND':<5}  {'MTIME':<10}  {size_hdr}".rstrip())
+    for n, kind, date, size in rows:
+        size_col = f"{size:>{ws}}  " if want_size else ""
+        print(f"{n:<{w}}  {kind:<5}  {date:<10}  {size_col}".rstrip())
+
+
 def main():
     argv = sys.argv[1:]
-    if len(argv) < 2:
+    if not argv:
         sys.exit(__doc__)
     # find_config consumes --config in place, so resolve it before splitting verb/remote/names.
     cfg = registry.find_config(".runs.yaml", "RUN_CONFIG", argv)
-    if len(argv) < 2:
+    if not argv:
         sys.exit(__doc__)
 
-    verb, remote, rest = argv[0], argv[1], argv[2:]
+    verb, rest = argv[0], argv[1:]
+
+    if verb in ("local", "path"):
+        want_size = any(a in ("--size", "-s") for a in rest)
+        want_paths = "--paths" in rest
+        subs = [a for a in rest if not a.startswith("-")]
+        spec = registry.all_entries(cfg)
+        remote = subs[0] if subs and subs[0] in spec else None
+        name = subs[1] if remote else (subs[0] if subs else None)
+        if remote:
+            local_dir = registry.resolve_dir(cfg, spec[remote])
+        else:
+            all_dirs = {registry.resolve_dir(cfg, e) for e in spec.values()}
+            if len(all_dirs) > 1:
+                sys.exit("run: remotes resolve to different local dirs "
+                         f"({', '.join(sorted(map(str, all_dirs)))}) — pass one explicitly, "
+                         f"e.g. `run {verb} {next(iter(spec))}`")
+            local_dir = all_dirs.pop()
+        print(f"[run: local via {cfg} -> {local_dir}]", file=sys.stderr)
+        if verb == "path":
+            # The composable handle: one bare abs path on stdout, for $() / xargs consumers.
+            if not name:
+                sys.exit("run: path requires a run name — try `run local`")
+            target = local_dir / name
+            if not target.is_dir():
+                sys.exit(f"run: no such local run: {target}\n"
+                         f"     (fetch it first: `run pull <remote> {name}`, or see `run local`)")
+            print(target)
+            return
+        _do_local(local_dir, name, want_size, want_paths)
+        return
+
+    if not rest:
+        sys.exit(__doc__)
+    remote, rest = rest[0], rest[1:]
     e = registry.entry(cfg, remote, "run")
     host, root, rel = e["host"], e["root"], e["dir"]
     local_dir = registry.resolve_dir(cfg, e)
@@ -156,6 +245,9 @@ def main():
     passthrough = [a for a in rest if a.startswith("-")]
     if not names:
         sys.exit(f"run: {verb} requires a run name (runs are large) — try `run list {remote}`")
+    # Probe the remote runs dir before transferring: a registered remote can be a worktree that
+    # was later removed, and that must fail loud here, not as a mid-sync rsync traceback.
+    _rsync_list([f"{host}:{root}/{rel}/"])
 
     for name in names:
         local = local_dir / name
