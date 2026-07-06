@@ -675,6 +675,9 @@ rls(){ run list psc; }
 rpull(){ run pull psc "$@"; }
 rpush(){ run push psc "$@"; }
 rlocal(){ run local "$@"; }
+# seg-model lives in the model project's venv, not on PATH — pin it so it works from anywhere,
+# e.g. `seg-model create t40 --from-run $(run path m2f-fullgrid-hpo-v3/t40)`.
+seg-model(){ uv run --project ~/repo/refseg-workspace/model seg-model "$@"; }
 
 gpu1() { interact -p GPU-shared --gres=gpu:v100-32:1 -t "${1:-1}:00:00"; }
 gpu2() { interact -p GPU-shared --gres=gpu:l40s-48:2 -t "${1:-1}:00:00"; }

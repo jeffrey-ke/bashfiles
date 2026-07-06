@@ -194,6 +194,11 @@ def main():
 
     verb, rest = argv[0], argv[1:]
 
+    if verb in ("-h", "--help", "help"):
+        sys.exit(__doc__)
+    if verb not in ("list", "local", "path", "push", "pull"):
+        sys.exit(f"run: unknown verb {verb!r} — verbs: list, local, path, push, pull (see `run --help`)")
+
     if verb in ("local", "path"):
         want_size = any(a in ("--size", "-s") for a in rest)
         want_paths = "--paths" in rest
@@ -237,9 +242,6 @@ def main():
         want_size = any(a in ("--size", "-s") for a in rest)
         _do_list(host, root, rel, subs[0] if subs else "", local_dir, want_size)
         return
-
-    if verb not in ("push", "pull"):
-        sys.exit(__doc__)
 
     names = [a for a in rest if not a.startswith("-")]
     passthrough = [a for a in rest if a.startswith("-")]
