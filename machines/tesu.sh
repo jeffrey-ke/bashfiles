@@ -30,19 +30,8 @@ export PATH=$HOME/isaacsim:$PATH
 # 	done
 # 	return 0
 # }
-# yazi cwd-on-exit wrapper
-function y() {
-	local tmp cwd
-	tmp="$(mktemp -t "yazi-cwd.XXXXXX")"
-	yazi "$@" --cwd-file="$tmp"
-	if cwd="$(command cat -- "$tmp")" && [ -n "$cwd" ] && [ "$cwd" != "$PWD" ]; then
-		builtin cd -- "$cwd"
-	fi
-	rm -f -- "$tmp"
-}
 alias fresh="source ~/.bashrc"
 alias fvim="nvim \$(fzf)"
-eval "$(fzf --bash)"
 
 # >>> path registry >>>
 export mpdata='/data/user/jeffk/datasets/mixed-persp'

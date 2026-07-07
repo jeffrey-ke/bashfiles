@@ -1,0 +1,25 @@
+#!/bin/bash
+# Shell integration for CLI tools installed by install-tools.sh.
+# Each block is a no-op if the tool isn't installed.
+
+case ":$PATH:" in *":$HOME/.local/bin:"*) ;; *) export PATH="$HOME/.local/bin:$PATH" ;; esac
+
+command -v zoxide >/dev/null 2>&1 && eval "$(zoxide init --cmd cd bash)"
+
+if command -v fzf >/dev/null 2>&1; then
+	eval "$(fzf --bash)"
+	export FZF_COMPLETION_TRIGGER='~~'
+fi
+
+if command -v yazi >/dev/null 2>&1; then
+	# yazi cwd-on-exit wrapper
+	function y() {
+		local tmp cwd
+		tmp="$(mktemp -t "yazi-cwd.XXXXXX")"
+		yazi "$@" --cwd-file="$tmp"
+		if cwd="$(command cat -- "$tmp")" && [ -n "$cwd" ] && [ "$cwd" != "$PWD" ]; then
+			builtin cd -- "$cwd"
+		fi
+		rm -f -- "$tmp"
+	}
+fi
