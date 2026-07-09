@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+DIR="$(dirname "$(readlink -f "$0")")"
+exec nvim --clean -u "$DIR/pydef.lua" -c "PyDef $*"
