@@ -1,0 +1,150 @@
+# Plans Table of Contents
+
+Topic-organized + chronological index of plan docs in this repo (currently all under
+`.docs_claude/plans/{active,completed}/`; one legacy entry predates that convention and
+still lives at top-level `plans/completed/`). Two views: a **chronological index**
+(most recent first) and **topic sections**, each plan carrying a prose abstract + a
+"Key changes" list of the salient files/functions it created(+)/modified(~)/deleted(-).
+
+## Maintaining this file
+
+When a plan is added, copied, moved, renamed, or deleted:
+
+1. Find it: `find . -path '*/.docs_claude/plans/*' -name '*.md'` (new plans go here;
+   `plans/completed/*.md` at the repo root is legacy, don't add new ones there).
+2. Read its title + summary to judge purpose and which area it touches.
+3. Add an entry — a `###` link, a code-location line, a 2-4 sentence prose **abstract**,
+   then a **"Key changes"** list — under every matching topic. A plan MUST appear under
+   at least one topic; it MAY appear under several. If it fits no existing topic, add a
+   new `## Topic` section.
+4. On move/rename/delete, update or remove the existing entry/entries.
+5. Also add it to the **Chronological index**, most-recent first — date = git creation
+   date: `git log --diff-filter=A --follow --format=%as -- <path> | tail -1` (an
+   uncommitted plan uses today's date).
+
+### Topics
+
+1. Nvim: Editing, Git & Highlighting · 2. Nvim: Standalone Search Tools ·
+3. Tmux: Popups & Notifications · 4. Shell: Navigation & Machine Config ·
+5. Shell: Tooling & Bootstrap
+
+---
+
+## Chronological index
+
+- **2026-07-09** — [standalone-pydef-python-definition-search.md](plans/completed/standalone-pydef-python-definition-search.md) `bin/`
+- **2026-07-07** — [cli-tools-bootstrap.md](plans/completed/cli-tools-bootstrap.md) `shell tooling`
+- **2026-06-25** — [2026-06-25-regex-hostname-shadowing-fix.md](../plans/completed/2026-06-25-regex-hostname-shadowing-fix.md) `source-machine.sh`
+- **2026-06-20** — [ghostty-osc-notifications-ssh-tmux.md](plans/completed/ghostty-osc-notifications-ssh-tmux.md) `.functions.sh`
+- **2026-06-17** — [machine-specific-path-registry.md](plans/completed/machine-specific-path-registry.md) `.functions.sh`
+- **2026-06-15** — [stage-commit-partial-hunk-fix.md](plans/completed/stage-commit-partial-hunk-fix.md) `nvim/lua/custom`
+- **2026-05-18** — [draft-prose-highlighting.md](plans/completed/draft-prose-highlighting.md) `nvim/init.lua`
+- **2026-05-17** — [tmux-popup-window.md](plans/completed/tmux-popup-window.md) `.tmux.conf`
+
+---
+
+## 1. Nvim: Editing, Git & Highlighting
+
+### [draft-prose-highlighting.md](plans/completed/draft-prose-highlighting.md)
+`~/dotfiles/nvim/init.lua` · 2026-05-18
+> Backtick-delimited draft-prose regions get a background-only tint via `matchadd`, so
+> free-form design notes iterated on inline with real code don't blend in. Landed after
+> three other approaches failed (LSP diagnostic override, treesitter `ERROR`-node query,
+> Lua extmark walk) — treesitter parses optimistically and recovers past the draft text,
+> so no `ERROR`/`MISSING` node ever covers it.
+>
+> **Key changes:**
+> - `~ DraftProse highlight + matchadd autocmd` — `~/dotfiles/nvim/init.lua`
+> - `- after/queries/python/highlights.scm` — treesitter approach, deleted during exploration
+
+### [stage-commit-partial-hunk-fix.md](plans/completed/stage-commit-partial-hunk-fix.md)
+`~/dotfiles/nvim/lua/custom/stage_commit.lua` · 2026-06-15
+> Fixes `:St!` (partial-hunk stage+commit) silently committing the *whole file* instead
+> of just the staged hunk. Root cause: `git commit -- <path>` doesn't filter what gets
+> committed — it auto-stages the working-tree version of `<path>` first, overwriting
+> gitsigns' partial staging.
+>
+> **Key changes:**
+> - `~ on_write()` — `~/dotfiles/nvim/lua/custom/stage_commit.lua` — drops `-- <restrict_path>` from the `git commit` args
+
+## 2. Nvim: Standalone Search Tools
+
+### [standalone-pydef-python-definition-search.md](plans/completed/standalone-pydef-python-definition-search.md)
+`~/dotfiles/bin/` · 2026-07-09
+> `pydef`: a CLI-reachable, realtime fuzzy search over Python function/class
+> definitions, restricted to `*.py` files, fully independent of the user's real nvim
+> config — `nvim --clean -u pydef.lua` self-bootstraps its own isolated Telescope
+> install (a `uv run --with`-style ephemeral tool). The picker mirrors Telescope's own
+> `grep_string` builtin (one-shot rg + live fuzzy sorter). Two earlier designs were
+> rejected (quickfix jump-to-first-match; wiring into the user's real `keymaps.lua`)
+> before landing on the standalone shape. Found and fixed two bugs during verification:
+> a generic Telescope startup-timing focus race (fixed with `vim.schedule`), and a
+> definition-pattern false-positive on docstring/comment prose (fixed by requiring real
+> definition syntax, cross-checked against Python's own `ast` parser).
+>
+> **Key changes:**
+> - `+ bin/pydef` — launcher: `nvim --clean -u pydef.lua -c "PyDef $*"`
+> - `+ bin/pydef.lua` — self-bootstrapping lazy.nvim + Telescope `:PyDef` picker
+
+## 3. Tmux: Popups & Notifications
+
+### [tmux-popup-window.md](plans/completed/tmux-popup-window.md)
+`~/dotfiles/.tmux.conf` · 2026-05-17
+> `prefix P` toggle: prompts for a window and opens it in a floating tmux popup (a
+> grouped session sharing the main session's window list); pressing `prefix P` again
+> inside the popup closes it, via an `if -F` check on the transient `_popup_*` session
+> name.
+>
+> **Key changes:**
+> - `~ bind-key P` — `~/dotfiles/.tmux.conf`
+> - `+ tmux-popup-window.sh` — popup session create/attach/cleanup
+
+### [ghostty-osc-notifications-ssh-tmux.md](plans/completed/ghostty-osc-notifications-ssh-tmux.md)
+`~/dotfiles/.functions.sh` · 2026-06-20
+> Gets macOS desktop notifications working from tesu tmux panes through SSH to Ghostty.
+> Root causes: tmux swallows raw OSC unless DCS-passthrough-wrapped and written to the
+> pane TTY, and the old `notify()` used a BEL terminator which produced a bell "ping"
+> with no banner whenever Ghostty was focused and suppressing banners.
+>
+> **Key changes:**
+> - `~ notify()` — `~/dotfiles/.functions.sh` — DCS passthrough via `#{pane_tty}`, ST terminator instead of BEL
+> - `~ notify-test()` — `~/dotfiles/.functions.sh`
+
+## 4. Shell: Navigation & Machine Config
+
+### [machine-specific-path-registry.md](plans/completed/machine-specific-path-registry.md)
+`~/dotfiles/.functions.sh` · 2026-06-17
+> Adds a `pp`/`pl`/`prm`/`to` named long-path registry — plain shell variables (which
+> expand anywhere on a line, unlike aliases) backed by a marker block written into
+> `machines/<hostname>.sh`, so the registry is per-machine and version-controlled for
+> free via the existing per-machine sourcing mechanism.
+>
+> **Key changes:**
+> - `~ pp(), pl(), prm(), to(), _pr_*` — `~/dotfiles/.functions.sh`
+> - `~ machines/tesu.sh` — lazily gains a `# >>> path registry >>>` marker block on first `pp` call
+
+### [2026-06-25-regex-hostname-shadowing-fix.md](../plans/completed/2026-06-25-regex-hostname-shadowing-fix.md)
+`~/dotfiles/source-machine.sh` · 2026-06-25
+> Fixes shared regex-hostname config (`machines/r[0-9]+.sh`) silently failing to load on
+> `r###` hosts once an exact-match file existed — `pp`/the path-registry (see above)
+> writes to `machines/$(hostname -s).sh`, an exact filename that was short-circuiting
+> the regex branch entirely. Made exact and regex config additive instead of
+> either/or: source the regex match as a shared base, then layer the exact file on top.
+>
+> **Key changes:**
+> - `~ source-machine.sh` — additive exact+regex sourcing instead of exact-wins-and-stops
+
+## 5. Shell: Tooling & Bootstrap
+
+### [cli-tools-bootstrap.md](plans/completed/cli-tools-bootstrap.md)
+`~/dotfiles/install-tools.sh` · 2026-07-07
+> Makes zoxide/fzf/yazi part of standard new-machine setup instead of living only as
+> hand-edits on `tesu`. Idempotent, no-sudo installer to `~/.local/bin`, plus a new
+> guarded `.bash_tools` integration file (no-op per tool if not installed), wired into
+> `run.sh`'s existing symlink/source machinery.
+>
+> **Key changes:**
+> - `+ .bash_tools` — guarded zoxide/fzf/yazi shell integration
+> - `+ install-tools.sh` — idempotent no-sudo installer (zoxide official script, fzf/yazi GitHub release binaries)
+> - `~ run.sh` — symlinks + sources `.bash_tools`, calls the installer at the end
+> - `~ machines/tesu.sh` — now-redundant hand-added `y()`/`fzf --bash` removed
