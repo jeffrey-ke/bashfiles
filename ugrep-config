@@ -1,0 +1,5 @@
+ignore-binary
+ignore-files
+hidden
+exclude-dir=.git
+sort

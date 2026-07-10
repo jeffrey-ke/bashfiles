@@ -32,6 +32,9 @@ When a plan is added, copied, moved, renamed, or deleted:
 
 ## Chronological index
 
+- **2026-07-10** — [yazi-zoxide-db-integration.md](plans/completed/yazi-zoxide-db-integration.md) `yazi/`, `run.sh`
+- **2026-07-10** — [fgr-fuzzy-grep-live-args.md](plans/completed/fgr-fuzzy-grep-live-args.md) `bin/`
+- **2026-07-10** — [fgr-fuzzy-grep-live-args-plan.md](plans/completed/fgr-fuzzy-grep-live-args-plan.md) `bin/`
 - **2026-07-09** — [standalone-pydef-python-definition-search.md](plans/completed/standalone-pydef-python-definition-search.md) `bin/`
 - **2026-07-07** — [cli-tools-bootstrap.md](plans/completed/cli-tools-bootstrap.md) `shell tooling`
 - **2026-06-25** — [2026-06-25-regex-hostname-shadowing-fix.md](../plans/completed/2026-06-25-regex-hostname-shadowing-fix.md) `source-machine.sh`
@@ -85,6 +88,45 @@ When a plan is added, copied, moved, renamed, or deleted:
 > **Key changes:**
 > - `+ bin/pydef` — launcher: `nvim --clean -u pydef.lua -c "PyDef $*"`
 > - `+ bin/pydef.lua` — self-bootstrapping lazy.nvim + Telescope `:PyDef` picker
+
+### [fgr-fuzzy-grep-live-args.md](plans/completed/fgr-fuzzy-grep-live-args.md)
+`~/dotfiles/bin/` · 2026-07-10
+> `fgr`: a pydef-sibling standalone live-grep tool — `nvim --clean -u fgr.lua` opens a
+> `telescope-live-grep-args.nvim` picker with `--hidden` on by default, live-typed
+> exclusion globs (`"pattern" --iglob !*.md`), a freeze-then-fuzzy-narrow step
+> (`<C-Space>`), and quickfix skim/resume (`<C-q>` / `<C-f>`). pydef's lazy.nvim +
+> Telescope bootstrap was extracted into a shared `telescope_boot.lua` module (per-tool
+> isolated cache dir) so both tools reuse it without pydef's own cache ever
+> re-bootstrapping. Also ships `~/.ugrep` so the standalone `ug` binary gets the same
+> ignore-binary/hidden/gitignore defaults without remembering flags. Two mapping
+> choices from the plan draft turned out wrong once checked against the installed
+> source — `<C-i>` collides with `<Tab>` (same terminal keycode; rebound to `<M-i>`),
+> and `telescope-live-grep-args`'s own `actions` module doesn't re-export
+> `to_fuzzy_refine` despite its README (used telescope core's instead) — and a genuine
+> auto-quoting gap where live-grep-args only splits typed flags out of an unquoted
+> prompt, fixed by auto-quoting the seeded search term.
+>
+> **Key changes:**
+> - `+ ugrep-config` (`~/.ugrep` symlink) — `ignore-binary`, `ignore-files`, `hidden`, `exclude-dir=.git`, `sort`
+> - `+ bin/telescope_boot.lua` — `setup{cache_name, extra_plugin_specs}`, extracted from pydef.lua
+> - `~ bin/pydef.lua` — refactored onto `telescope_boot`, behavior unchanged
+> - `+ bin/fgr` — launcher: `nvim --clean -u fgr.lua -c "FGrep $*"`
+> - `+ bin/fgr.lua` — `:FGrep` live-grep-args picker + `<C-f>` resume mapping
+
+### [fgr-fuzzy-grep-live-args-plan.md](plans/completed/fgr-fuzzy-grep-live-args-plan.md)
+`~/dotfiles/bin/` · 2026-07-10
+> The approved plan behind `fgr`, kept for its tool-research synthesis: four parallel
+> web agents compared interactive grep TUIs (ugrep -Q/-Z, television, broot), fzf+rg
+> harness patterns (no polished standalone wrapper exists; everyone adapts fzf's
+> ADVANCED.md rfv script), nvim pickers (telescope-live-grep-args vs fzf-lua vs
+> snacks vs mini.pick), and approximate matching (only ugrep -Z fuzzy-matches the
+> pattern against content; fzf-style fuzziness merely filters fetched result lines).
+> Also records the empirically-found ugrep gotchas: dir args searched depth-1 without
+> `-r`, `-I` needed to stop `-Z` matching random binary bytes, `--ignore-files` not
+> default, `-Z` case-sensitive with the first char anchored. Outcome doc:
+> [fgr-fuzzy-grep-live-args.md](plans/completed/fgr-fuzzy-grep-live-args.md).
+>
+> **Key changes:** same file set as the outcome doc above (plan, not code).
 
 ## 3. Tmux: Popups & Notifications
 
@@ -148,3 +190,16 @@ When a plan is added, copied, moved, renamed, or deleted:
 > - `+ install-tools.sh` — idempotent no-sudo installer (zoxide official script, fzf/yazi GitHub release binaries)
 > - `~ run.sh` — symlinks + sources `.bash_tools`, calls the installer at the end
 > - `~ machines/tesu.sh` — now-redundant hand-added `y()`/`fzf --bash` removed
+
+### [yazi-zoxide-db-integration.md](plans/completed/yazi-zoxide-db-integration.md)
+`~/dotfiles/yazi/`, `~/dotfiles/run.sh` · 2026-07-10
+> Brings `~/.config/yazi` under dotfiles tracking (previously untracked, unlike nvim) and
+> enables yazi's built-in zoxide plugin `update_db` option, so directories browsed in
+> yazi get written into the same zoxide database the shell's `z`/`zi` use — verified
+> against yazi's plugin source and confirmed end-to-end via a scripted tmux session.
+>
+> **Key changes:**
+> - `+ yazi/yazi.toml`, `+ yazi/keymap.toml` — moved verbatim from `~/.config/yazi/`
+> - `+ yazi/init.lua` — `require("zoxide"):setup { update_db = true }`
+> - `~ run.sh` — guarded symlink (`~/.config/yazi` was a real directory, not a symlink;
+>   plain `ln -sf` would've nested inside it instead of replacing it)

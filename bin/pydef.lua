@@ -5,44 +5,12 @@
 -- reused on subsequent runs.
 -- Usage: nvim --clean -u pydef.lua -c "PyDef [name] [dir]"
 
-local cache_root = vim.fn.stdpath 'cache' .. '/pydef-nvim'
-local lazypath = cache_root .. '/lazy/lazy.nvim'
-if not (vim.uv or vim.loop).fs_stat(lazypath) then
-  local out = vim.fn.system {
-    'git', 'clone', '--filter=blob:none', '--branch=stable',
-    'https://github.com/folke/lazy.nvim.git', lazypath,
-  }
-  if vim.v.shell_error ~= 0 then
-    error('Error cloning lazy.nvim:\n' .. out)
-  end
-end
-vim.opt.rtp:prepend(lazypath)
-
-require('lazy').setup({
-  {
-    'nvim-telescope/telescope.nvim',
-    dependencies = {
-      'nvim-lua/plenary.nvim',
-      { 'nvim-telescope/telescope-fzf-native.nvim', build = 'make' },
-    },
-  },
-}, { root = cache_root .. '/lazy' })
-
-require('telescope').setup {
-  defaults = {
-    mappings = {
-      i = {
-        ['<C-j>'] = 'move_selection_next',
-        ['<C-k>'] = 'move_selection_previous',
-      },
-      n = {
-        ['<C-j>'] = 'move_selection_next',
-        ['<C-k>'] = 'move_selection_previous',
-      },
-    },
-  },
-}
-pcall(require('telescope').load_extension, 'fzf')
+-- debug.getinfo source is this file's absolute path (the launcher passes -u
+-- via readlink -f), so this resolves regardless of cwd; bin/ isn't on
+-- package.path by default.
+local script_dir = vim.fn.fnamemodify(debug.getinfo(1, 'S').source:sub(2), ':p:h')
+package.path = script_dir .. '/?.lua;' .. package.path
+require('telescope_boot').setup { cache_name = 'pydef-nvim' }
 
 local function python_def_picker(opts)
   opts = opts or {}
