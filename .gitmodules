@@ -1,3 +1,6 @@
 [submodule "nvim"]
 	path = nvim
 	url = git@github.com:jeffrey-ke/kickstart.nvim.git
+[submodule "commentstrip"]
+	path = commentstrip
+	url = git@github.com:jeffrey-ke/commentstrip.git
