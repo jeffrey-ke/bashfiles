@@ -39,7 +39,24 @@ git fetch --recurse-submodules            # get remote state WITHOUT moving any 
 git submodule foreach --quiet 'git log --oneline @{u}.. 2>/dev/null && echo "  ^unpushed in $name" || true'
 # dirty child worktrees:
 git submodule foreach --quiet 'git -c color.ui=always status --short'
+# META-BRANCH divergence vs its own origin — did another machine push a meta bump you don't have?
+git rev-list --left-right --count @{u}...HEAD   # "<behind>  <ahead>" of the meta's upstream
+git --no-pager log --oneline HEAD..@{u}         # the incoming meta commits (often a rival pin bump)
 ```
+
+**Check the meta branch against its origin, not just the children.** `git submodule status` only
+compares each child to the *local* pin — it is blind to a meta bump another machine already pushed. The
+`@{u}...HEAD` count tells you which path you're on:
+| `<behind> <ahead>` | Meaning | Action |
+|------|---------|--------|
+| `0 0` | meta in sync with origin | Recipe A (single-machine happy path) |
+| `0 N` | only you advanced the meta | Recipe A, then `git push` |
+| `M 0` | origin advanced; you have no meta commit yet | FF/rebase onto `@{u}` **before** committing your bump |
+| `M N` | both advanced the meta (rival pin bump) | **Recipe B** — rebase your bump onto `@{u}`, expect a gitlink conflict |
+
+A `behind > 0` count is the tell that a careless `git push` will be rejected and a naive rebase may hit a
+gitlink conflict — resolve it the Recipe B way (`git add <submodule>` to take the locally checked-out
+merged SHA), never `git submodule update`.
 
 `git submodule status` leading character — **read this first, every time:**
 | Char | Meaning | Action |
