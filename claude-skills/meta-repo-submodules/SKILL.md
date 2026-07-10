@@ -181,6 +181,25 @@ git rebase rescue-...        # or cherry-pick the rescued commits onto the inten
 git branch -d rescue-...
 ```
 
+### Branching a detached HEAD to commit *uncommitted* work (the common, safe move)
+
+The detached HEAD doesn't need pre-existing commits to be worth rescuing — **uncommitted working-tree edits on a detached HEAD are just as much data at risk**, because the next `git submodule update`/`checkout` can clobber them. Branching first is always allowable and is the preferred way to make those edits safe: a branch gives the commit a ref so nothing can orphan it.
+
+```bash
+cd <child>
+git switch -c <branch> $(git rev-parse HEAD)   # or: git switch -c <branch>   # keeps the dirty worktree, now on a real branch
+git add -A && git commit -m "<real message>"   # edits are now a commit on a named branch — safe
+```
+
+Then reconcile against the remote. If the detached SHA is a clean ancestor of the moved remote branch (`git merge-base --is-ancestor <sha> <remote>` → true), rebase the new branch onto it:
+
+```bash
+git rebase origin/<remote-branch>    # replays your commit on top of the remote's; resolve child conflicts here
+git push -u origin <branch>          # then bump the meta pin to this new SHA
+```
+
+When your local edits and the remote commits represent **genuinely divergent directions** (not just stacked work) — e.g. two different experiment lines touching the same files — don't force them into one rebase silently. Commit the local work on its **own named branch** off the detached SHA, surface the divergence to the user, and let them choose: integrate (rebase onto the remote line, resolving conflicts) or keep the local line on a **separate branch** (pin stays on the remote line; local work is preserved + pushed but unpinned). Either way the branch-first commit guarantees nothing is lost while the decision is pending.
+
 ## When Applying This Skill
 
 1. **Diagnose first (Step 0).** Never act before reading `git submodule status` leading chars and checking for unpushed child commits — they're the data at risk.

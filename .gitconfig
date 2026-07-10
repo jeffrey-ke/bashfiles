@@ -27,10 +27,10 @@
 	excludesFile = /home/jeffk/.gitignore_global
 [credential "https://github.com"]
 	helper = 
-	helper = !/home/jeffk/miniconda3/envs/isaacsim/bin/gh auth git-credential
+	helper = !/ocean/projects/cis260205p/jke2/envs/main/bin/gh auth git-credential
 [credential "https://gist.github.com"]
 	helper = 
-	helper = !/home/jeffk/miniconda3/envs/isaacsim/bin/gh auth git-credential
+	helper = !/ocean/projects/cis260205p/jke2/envs/main/bin/gh auth git-credential
 [filter "lfs"]
 	clean = git-lfs clean -- %f
 	smudge = git-lfs smudge -- %f
