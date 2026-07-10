@@ -43,4 +43,6 @@ export datasets='/data/user/jeffk/datasets'
 export isgen='/home/jeffk/repo/isaac_datagen'
 export propconf='/home/jeffk/repo/reference_matching/src/reference_matching/configs'
 export data='/data/user/jeffk'
+export sbp='/data/user/jeffk/seg_benchmark_predictions'
+export runs='/home/jeffk/repo/refseg-workspace/segmentation/runs'
 # <<< path registry <<<
