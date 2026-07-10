@@ -63,4 +63,9 @@ for tool in zoxide fzf yazi; do
 		echo "✗ $tool install failed — re-run ./install-tools.sh later" >&2
 	fi
 done
+
+if command -v ya >/dev/null 2>&1 && [ -f "$HOME/.config/yazi/package.toml" ]; then
+	ya pkg install >/dev/null 2>&1 && echo "✓ yazi plugins installed" || echo "✗ yazi plugin install failed — re-run 'ya pkg install' later" >&2
+fi
+
 exit 0
