@@ -19,6 +19,7 @@
     a  = add
     rc = rebase --continue
     mt = mergetool
+	cof = config
 [mergetool]
 	prompt = false
 [core]
