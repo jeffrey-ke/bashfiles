@@ -45,4 +45,5 @@ export propconf='/home/jeffk/repo/reference_matching/src/reference_matching/conf
 export data='/data/user/jeffk'
 export sbp='/data/user/jeffk/seg_benchmark_predictions'
 export runs='/home/jeffk/repo/refseg-workspace/segmentation/runs'
+export rback='/data/user/jeffk/random_backgrounds'
 # <<< path registry <<<
