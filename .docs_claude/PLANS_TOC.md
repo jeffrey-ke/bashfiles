@@ -32,6 +32,7 @@ When a plan is added, copied, moved, renamed, or deleted:
 
 ## Chronological index
 
+- **2026-07-12** — [ugq-query-tui-quickfix.md](plans/completed/ugq-query-tui-quickfix.md) `.functions.sh`
 - **2026-07-12** — [fgc-fuzzy-git-commit-search.md](plans/completed/fgc-fuzzy-git-commit-search.md) `.functions.sh`
 - **2026-07-10** — [yazi-zoxide-db-integration.md](plans/completed/yazi-zoxide-db-integration.md) `yazi/`, `run.sh`
 - **2026-07-10** — [fgr-fuzzy-grep-live-args.md](plans/completed/fgr-fuzzy-grep-live-args.md) `bin/`
@@ -128,6 +129,26 @@ When a plan is added, copied, moved, renamed, or deleted:
 > [fgr-fuzzy-grep-live-args.md](plans/completed/fgr-fuzzy-grep-live-args.md).
 >
 > **Key changes:** same file set as the outcome doc above (plan, not code).
+
+### [ugq-query-tui-quickfix.md](plans/completed/ugq-query-tui-quickfix.md)
+`.functions.sh` · 2026-07-12
+> `ugq`: the `ug -Q -Z` alias's live TUI (type pattern, live fuzzy results) wrapped so
+> lines picked in ugrep's native selection mode (`Enter` → toggle lines / `A` all →
+> `Ctrl-Q`) land in an nvim quickfix list with accurate line:col jumps — closing the
+> alias's one gap, CTRL-Y only ever opening the *file* (ugrep's `--view` is never given
+> a line number). Bare `ugq` drops straight into the TUI like bare `ug`. Built on
+> facts verified in ugrep v5.0.0's source: the TUI draws on `/dev/tty`
+> (screen.cpp:272) so `$(...)` cleanly captures just the Ctrl-Q selection output; with
+> `-Q` a seeded pattern needs `-e`; `-H --no-heading --no-initial-tab` forces rows to
+> `file:line:col:text` (nvim's default errorformat); and `-Q` forces `--color=always`
+> even into a pipe, so a shell-side sed strips the SGR codes. Two earlier fzf-based
+> iterations were discarded (no live TUI, broken preview — see the doc's
+> what-didn't-work section); raw-pty scripting of `-Q` fails on ugrep's
+> cursor-position probe, so verification is tmux-driven.
+>
+> **Key changes:**
+> - `~ .functions.sh` — `ugq()` rewritten: `ug -Q -Z -n -k -H --no-heading --no-initial-tab [-e PAT]` → sed SGR-strip → `nvim -q <(...) -c cwindow`
+> - no-selection fallback: quitting a *seeded* `ugq PAT` without selecting batch re-runs PAT and quickfixes ALL matches (live-typed patterns aren't recoverable — TUI history is in-memory only)
 
 ## 3. Tmux: Popups & Notifications
 

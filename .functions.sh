@@ -695,3 +695,30 @@ fgc() {
 			--preview 'git show --color=always {1}' \
 		| grep -oE '[a-f0-9]{7,40}' | head -1
 }
+
+# --- ug's -Q TUI -> nvim quickfix (see ug) ---
+# Same live TUI as the `ug` alias (-Q -Z: type pattern, live fuzzy results), plus
+# a quickfix handoff: Enter = selection mode, Enter/Del toggle lines, A = all,
+# Ctrl-Q = exit and print selected rows. The TUI draws on /dev/tty (verified in
+# ugrep 5.0 screen.cpp), so $(...) only captures that final output. -e seeds the
+# pattern (with -Q, positional args are files); -H --no-heading
+# --no-initial-tab keeps rows as file:line:col:text (unpadded, filename even
+# for a single file) to match nvim's default errorformat; sed strips the SGR
+# codes -Q's forced --color=always leaves in the output. Quitting with no
+# selection falls back to ALL matches of the seeded pattern (batch re-run of
+# the original seed — a pattern typed/refined live in the TUI isn't
+# recoverable after exit, so bare ugq just returns; use Enter,A,Ctrl-Q for
+# select-all there). The fallback also fires on Esc, so bail with :qa!.
+ugq() {
+	local out pattern=
+	if [ $# -gt 0 ] && [ "${1#-}" = "$1" ]; then
+		pattern="$1"; shift
+	fi
+	out=$(command ug -Q -Z -n -k -H --no-heading --no-initial-tab ${pattern:+-e "$pattern"} "$@" \
+		| sed $'s/\x1b\\[[0-9;]*[mK]//g')
+	if [ -z "$out" ] && [ -n "$pattern" ]; then
+		out=$(command ug -Z -n -k -H --no-heading --no-initial-tab -e "$pattern" "$@")
+	fi
+	[ -n "$out" ] || return 0
+	nvim -q <(printf '%s\n' "$out") -c 'cwindow'
+}
