@@ -34,6 +34,7 @@ When a plan is added, copied, moved, renamed, or deleted:
 
 - **2026-07-12** — [ugq-query-tui-quickfix.md](plans/completed/ugq-query-tui-quickfix.md) `.functions.sh`
 - **2026-07-12** — [fgc-fuzzy-git-commit-search.md](plans/completed/fgc-fuzzy-git-commit-search.md) `.functions.sh`
+- **2026-07-11** — [tmux-prefix-e-claude-explain.md](plans/completed/tmux-prefix-e-claude-explain.md) `.tmux.conf`, `tmux-claude-explain.sh`
 - **2026-07-10** — [yazi-zoxide-db-integration.md](plans/completed/yazi-zoxide-db-integration.md) `yazi/`, `run.sh`
 - **2026-07-10** — [fgr-fuzzy-grep-live-args.md](plans/completed/fgr-fuzzy-grep-live-args.md) `bin/`
 - **2026-07-10** — [fgr-fuzzy-grep-live-args-plan.md](plans/completed/fgr-fuzzy-grep-live-args-plan.md) `bin/`
@@ -173,6 +174,25 @@ When a plan is added, copied, moved, renamed, or deleted:
 > **Key changes:**
 > - `~ notify()` — `~/dotfiles/.functions.sh` — DCS passthrough via `#{pane_tty}`, ST terminator instead of BEL
 > - `~ notify-test()` — `~/dotfiles/.functions.sh`
+
+### [tmux-prefix-e-claude-explain.md](plans/completed/tmux-prefix-e-claude-explain.md)
+`~/dotfiles/.tmux.conf`, `~/dotfiles/tmux-claude-explain.sh` · 2026-07-11
+> `prefix E` opens a headless-Claude popup that diagnoses the focused pane's most
+> recent failed command as a bash/OS mechanism lesson, then offers `[f]` to drop a
+> suggested fix onto that pane's prompt via `send-keys -l` (never auto-run), using a
+> read-only `claude -p` (Read/Grep/Glob + safe Bash only, `find -delete`/`-exec`
+> explicitly disallowed). **Shipped code diverged from this plan:** the `CCEXPLAIN`
+> `PROMPT_COMMAND` marker and its `run.sh`/`.bashrc` wiring (§1 here) were dropped in
+> favor of a "diagnose the most recent command" prompt over the full 2000-line
+> scrollback, and the binding hops through `run-shell` because tmux 3.4 doesn't
+> format-expand `display-popup`'s shell-command (3.5 does). Later extended so the
+> agent is handed nearby project context.
+>
+> **Key changes:**
+> - `+ tmux-claude-explain.sh` — capture pane scrollback → `claude -p` read-only diagnosis → `[f]` places fix via `send-keys -l`
+> - `~ bind-key E` — `~/dotfiles/.tmux.conf` — overrides tmux's default spread-panes-evenly; `run-shell -b` wrapper for tmux 3.4 format-expansion
+> - `~ tmux-claude-explain.sh` (later) — walk-up notes `CLAUDE.md`/`.docs_claude` + immediate-child `CLAUDE.md` to the agent; `--add-dir` grants Read on parents
+> - _planned, not shipped:_ `CCEXPLAIN` `PROMPT_COMMAND` marker in `run.sh`/`.bashrc`
 
 ## 4. Shell: Navigation & Machine Config
 
