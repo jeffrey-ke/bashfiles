@@ -722,3 +722,12 @@ ugq() {
 	[ -n "$out" ] || return 0
 	nvim -q <(printf '%s\n' "$out") -c 'cwindow'
 }
+fvim() {
+	if [[ -n "$1" ]]; then
+		fd --hidden --symlink --no-ignore "$1" | fzf | xargs nvim
+	else
+		fzf | xargs nvim
+
+	fi
+
+}
