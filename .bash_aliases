@@ -73,3 +73,4 @@ alias startrm='ssh $(squeue -h -u $USER -n persist -t R -O NodeList | tr -d " ")
 alias tailf='tail -f'
 alias rg='rg --vimgrep'
 alias lsg='ls -a | grep'
+alias ot='obgrab tesu'

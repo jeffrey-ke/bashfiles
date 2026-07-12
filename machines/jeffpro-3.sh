@@ -30,7 +30,7 @@ function obgrab() {
 	local name="${3:-$(basename "$remote_path")}"
 	local dest_dir
 	dest_dir="$(realpath "$HOME/repo/Research/Research/papers and figures")"
-	scp "$host:$remote_path" "$dest_dir/$name"
+	scp -r "$host:$remote_path" "$dest_dir/$name"
 }
 
 alias z=cd
