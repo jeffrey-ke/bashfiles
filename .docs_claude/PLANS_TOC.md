@@ -26,12 +26,13 @@ When a plan is added, copied, moved, renamed, or deleted:
 
 1. Nvim: Editing, Git & Highlighting · 2. Nvim: Standalone Search Tools ·
 3. Tmux: Popups & Notifications · 4. Shell: Navigation & Machine Config ·
-5. Shell: Tooling & Bootstrap
+5. Shell: Tooling & Bootstrap · 6. Shell: Git Helpers
 
 ---
 
 ## Chronological index
 
+- **2026-07-12** — [fgc-fuzzy-git-commit-search.md](plans/completed/fgc-fuzzy-git-commit-search.md) `.functions.sh`
 - **2026-07-10** — [yazi-zoxide-db-integration.md](plans/completed/yazi-zoxide-db-integration.md) `yazi/`, `run.sh`
 - **2026-07-10** — [fgr-fuzzy-grep-live-args.md](plans/completed/fgr-fuzzy-grep-live-args.md) `bin/`
 - **2026-07-10** — [fgr-fuzzy-grep-live-args-plan.md](plans/completed/fgr-fuzzy-grep-live-args-plan.md) `bin/`
@@ -203,3 +204,18 @@ When a plan is added, copied, moved, renamed, or deleted:
 > - `+ yazi/init.lua` — `require("zoxide"):setup { update_db = true }`
 > - `~ run.sh` — guarded symlink (`~/.config/yazi` was a real directory, not a symlink;
 >   plain `ln -sf` would've nested inside it instead of replacing it)
+
+## 6. Shell: Git Helpers
+
+### [fgc-fuzzy-git-commit-search.md](plans/completed/fgc-fuzzy-git-commit-search.md)
+`~/dotfiles/.functions.sh` · 2026-07-12
+> `fgc`: a fuzzy git-commit-search function applying the same two-stage pattern as
+> `fgr` to git history instead of files — exact/regex prefilter on the high-entropy
+> corpus (diff content, via git's `-G` pickaxe), then fzf fuzzy-narrowing on the small,
+> human-authored candidate list (the oneline commit summaries), not the reverse.
+> Measured why the reverse order fails: fuzzy-matching raw diff lines directly produced
+> 1,100 false-positive hits for a 6-character query against only 2 real commits, in just
+> one submodule's history. Enter prints the selected hash to stdout for piping.
+>
+> **Key changes:**
+> - `+ fgc()` — `~/dotfiles/.functions.sh`, appended after `gpu2()`

@@ -681,3 +681,17 @@ seg-model(){ uv run --project ~/repo/refseg-workspace/model seg-model "$@"; }
 
 gpu1() { interact -p GPU-shared --gres=gpu:v100-32:1 -t "${1:-1}:00:00"; }
 gpu2() { interact -p GPU-shared --gres=gpu:l40s-48:2 -t "${1:-1}:00:00"; }
+
+# --- fuzzy git commit search (see fgc) ---
+# Pickaxe (-G, regex, case-insensitive) prefilters commits whose diff touched
+# <pattern>; fzf fuzzy-narrows the oneline candidate list. Enter prints the
+# selected hash to stdout for piping (fgc mlflow | xargs git show).
+fgc() {
+	[ -z "$1" ] && { echo "Usage: fgc <pattern>"; return 1; }
+	local pattern="$1"
+	git log --all -G"$pattern" -i --color=always \
+		--format='%C(auto)%h%d %s %C(black)%C(bold)%cr' \
+		| fzf --ansi --no-sort --reverse \
+			--preview 'git show --color=always {1}' \
+		| grep -oE '[a-f0-9]{7,40}' | head -1
+}
