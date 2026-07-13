@@ -6,7 +6,6 @@
 # Internal (invoked only by grab's own fzf ctrl-w reload binding):
 #           grab --cycle <tmpdir>    advance tokenization mode, print the new
 #                                     header line + candidates (fzf --header-lines=1)
-set -euo pipefail
 
 SCROLLBACK_LINES=2000
 
@@ -28,5 +27,5 @@ tokenize_mode() {
 }
 
 if [ "${BASH_SOURCE[0]}" = "$0" ]; then
-	:
+	set -euo pipefail
 fi
