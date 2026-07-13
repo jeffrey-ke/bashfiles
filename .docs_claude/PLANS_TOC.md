@@ -32,6 +32,7 @@ When a plan is added, copied, moved, renamed, or deleted:
 
 ## Chronological index
 
+- **2026-07-12** — [render-markdown-code-block-background.md](plans/completed/render-markdown-code-block-background.md) `nvim/lua/custom/plugins/markdown.lua`
 - **2026-07-12** — [ugq-query-tui-quickfix.md](plans/completed/ugq-query-tui-quickfix.md) `.functions.sh`
 - **2026-07-12** — [fgc-fuzzy-git-commit-search.md](plans/completed/fgc-fuzzy-git-commit-search.md) `.functions.sh`
 - **2026-07-11** — [tmux-prefix-e-claude-explain.md](plans/completed/tmux-prefix-e-claude-explain.md) `.tmux.conf`, `tmux-claude-explain.sh`
@@ -50,6 +51,22 @@ When a plan is added, copied, moved, renamed, or deleted:
 ---
 
 ## 1. Nvim: Editing, Git & Highlighting
+
+### [render-markdown-code-block-background.md](plans/completed/render-markdown-code-block-background.md)
+`~/dotfiles/nvim/lua/custom/plugins/markdown.lua` · 2026-07-12
+> Fenced code blocks rendered as hard-to-read grey boxes after the Solarized ANSI-16
+> passthrough switch. Root cause: render-markdown links its code fill `RenderMarkdownCode`
+> → `ColorColumn` → Solarized `base02`, which in cterm-only mode is just the canonical
+> subtle-highlight tone one step off the background — and ANSI-16 exposes no
+> higher-contrast "block" slot, so a distinct *and* readable tinted block is impossible
+> without truecolor. Fix drops the fill entirely (`code.disable_background = true`) so code
+> sits on the normal background with full syntax contrast, keeping the language label +
+> border; inline `` `code` `` keeps its tint. Matches the passthrough plan's "let Solarized
+> cover it" philosophy; a plugin `opts` change, so it survives colorscheme reloads with no
+> highlight bookkeeping.
+>
+> **Key changes:**
+> - `~ lua/custom/plugins/markdown.lua` — `~/dotfiles/nvim/` — bare spec gains `opts = { code = { disable_background = true } }` (default was `{ 'diff' }`)
 
 ### [draft-prose-highlighting.md](plans/completed/draft-prose-highlighting.md)
 `~/dotfiles/nvim/init.lua` · 2026-05-18
