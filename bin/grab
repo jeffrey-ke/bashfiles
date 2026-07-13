@@ -56,6 +56,30 @@ cmd_cycle() {
 	emit_mode "$mode" "$tmpdir/raw"
 }
 
+main() {
+	[ -n "${TMUX:-}" ] || {
+		echo "grab: not inside tmux" >&2
+		exit 1
+	}
+	tmpdir=$(mktemp -d)
+	trap 'rm -rf "$tmpdir"' EXIT
+
+	tmux capture-pane -p -S "-$SCROLLBACK_LINES" >"$tmpdir/raw"
+	echo word >"$tmpdir/state"
+
+	emit_mode word "$tmpdir/raw" | fzf --reverse --header-lines=1 \
+		--bind "ctrl-w:reload(grab --cycle \"$tmpdir\")" \
+		--bind "ctrl-y:execute-silent(printf %s {} | xclip -selection clipboard 2>/dev/null || true)+abort"
+}
+
 if [ "${BASH_SOURCE[0]}" = "$0" ]; then
 	set -euo pipefail
+	case "${1:-}" in
+	--cycle) cmd_cycle "$2" ;;
+	"") main ;;
+	*)
+		echo "grab: unknown argument '$1'" >&2
+		exit 1
+		;;
+	esac
 fi
