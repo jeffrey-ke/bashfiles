@@ -33,18 +33,27 @@ macOS.** Move this plan to `completed/` and update `PLANS_TOC.md` only
 once someone runs `grab` on `jeffpro` (or another Mac) and confirms it
 works there.
 
-## 2. Portable clipboard (`xclip` fix)
+## 2. Portable clipboard (`xclip` fix) — SKIPPED, not actually broken
 
-`bin/grab:74` — `ctrl-y` uses `xclip -selection clipboard 2>/dev/null ||
-true`. `xclip` is X11-only, doesn't exist on macOS (that's `pbcopy`).
-Because of the `|| true` fallback, this doesn't error — it silently
-copies nothing, the worst failure shape (looks like it worked).
-`.tmux.conf:81-82` uses the identical `xclip ... || true` pattern with no
-macOS guard anywhere — no existing precedent in this repo to reuse.
-Candidate fix found during review: `.tmux.conf:73` already sets `set -s
-set-clipboard on` (OSC 52) — `tmux load-buffer -w -` would route through
-that existing mechanism and work on both OSes with no new dependency,
-instead of branching on `command -v pbcopy`.
+Original review assumption: `bin/grab:74`'s `ctrl-y` uses `xclip
+-selection clipboard`, which is X11-only and "doesn't exist on macOS."
+**This assumption was wrong for the user's actual Mac** — user confirmed
+(2026-07-13) `xclip` is genuinely installed and working there (used by
+`.tmux.conf:81-82`'s already-functional `y`/`Enter` copy-mode bindings,
+same binary). `grab`'s `ctrl-y` uses the identical `xclip -selection
+clipboard` command (no `-in` flag, but that's `xclip`'s own default), so
+it already works unmodified on this Mac too.
+
+A candidate portable fix was investigated and verified mechanically
+before this was found unnecessary: `.tmux.conf:73`'s `set -s
+set-clipboard on` (OSC 52) + `tmux load-buffer -w -` (confirmed via
+`tmux show-buffer` to read stdin and populate a buffer correctly, and
+per `man tmux`, `-w` sends it to the system clipboard via the xterm OSC
+52 escape sequence). User explicitly chose not to switch to this —
+`xclip` isn't broken for them, and swapping would be work for a problem
+they don't have. Revisit only if a *different* Mac (without `xclip`
+installed) needs `grab`, or if `xclip`'s XQuartz/Homebrew dependency
+ever becomes inconvenient to maintain.
 
 ## 3. Cross-platform install/bootstrap
 
