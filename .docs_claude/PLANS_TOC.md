@@ -32,6 +32,7 @@ When a plan is added, copied, moved, renamed, or deleted:
 
 ## Chronological index
 
+- **2026-07-13** — [grab-screen-word-completion.md](plans/completed/grab-screen-word-completion.md) `bin/grab`, `.bash_tools`
 - **2026-07-12** — [render-markdown-code-block-background.md](plans/completed/render-markdown-code-block-background.md) `nvim/lua/custom/plugins/markdown.lua`
 - **2026-07-12** — [ugq-query-tui-quickfix.md](plans/completed/ugq-query-tui-quickfix.md) `.functions.sh`
 - **2026-07-12** — [fgc-fuzzy-git-commit-search.md](plans/completed/fgc-fuzzy-git-commit-search.md) `.functions.sh`
@@ -262,6 +263,41 @@ When a plan is added, copied, moved, renamed, or deleted:
 > - `+ yazi/init.lua` — `require("zoxide"):setup { update_db = true }`
 > - `~ run.sh` — guarded symlink (`~/.config/yazi` was a real directory, not a symlink;
 >   plain `ln -sf` would've nested inside it instead of replacing it)
+
+### [grab-screen-word-completion.md](plans/completed/grab-screen-word-completion.md)
+`~/dotfiles/bin/`, `.bash_tools` · 2026-07-13
+> `grab`: a CTRL-G fzf picker over the current tmux pane's visible text +
+> scrollback, complementing fzf's own CTRL-T (filesystem paths). Three
+> switchable tokenizations — `word` (vim WORD, whitespace-delimited, keeps
+> `foo/bar.py:123:`/`--flag=value` intact), `line` (whole screen lines), and
+> `fine` (vim word, punctuation-split) — cycled in-fzf via `ctrl-w`, with
+> `ctrl-y` to copy instead of insert. Portable `bin/grab` (capture → tokenize
+> → fzf, symlinked to `~/.local/bin/grab` like `art`/`fgr`/`pydef`) plus a
+> thin `.bash_tools` `bind -x` glue block, matching the `art`/`run` (library)
+> vs `dsl`/`rls` (thin wrapper) split. Built via
+> subagent-driven-development (4 tasks, task-reviewed, final whole-branch
+> review: ready to merge); every mechanism — including the trickiest part,
+> fzf's `ctrl-w` mode-cycling — was proven against real detached tmux
+> sessions before being written into the plan, catching two real bugs before
+> a single line shipped: chained `reload(...)+transform-header(...)` fzf
+> actions run *concurrently* not sequentially (fixed by folding the mode
+> line into `reload`'s own stdout with `--header-lines=1`, atomic, no race),
+> and a `tmpdir` declared `local` inside `main()` went out of scope before
+> its own `EXIT` trap fired, corrupting the exit code under `set -u` even on
+> a successful selection (fixed by making it a plain script-scoped var).
+> Two more bugs surfaced during task review and were fixed with the user's
+> sign-off: a top-level `set -euo pipefail` was leaking `errexit` into any
+> shell that `source`s `bin/grab` for testing (moved inside the
+> run-as-script guard), and `bind -x` with no `-m` only registers into
+> the keymap active at call time — this machine's `set -o vi` (sourced
+> later in `~/.bashrc`) orphaned an emacs-only binding, fixed by also
+> binding `vi-insert`/`vi-command` (and a `bind` flag-order gotcha — `-m
+> KEYMAP` must precede `-x` — caught while proving that fix live).
+>
+> **Key changes:**
+> - `+ bin/grab` — `tokenize_word`/`tokenize_line`/`tokenize_fine`/`tokenize_mode` (dedup+reverse), `next_mode`/`header_line`/`emit_mode`/`cmd_cycle` (mode state machine), `main()` (tmux capture + fzf wiring), `--cycle` CLI dispatch
+> - `~ .bash_tools` — `_grab_insert()` + `bind -x`/`bind -m vi-insert -x`/`bind -m vi-command -x` on CTRL-G
+> - `+ ~/.local/bin/grab` (symlink, machine-local install state, not tracked)
 
 ## 6. Shell: Git Helpers
 
