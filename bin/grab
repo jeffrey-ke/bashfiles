@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+# grab — fzf picker over visible tmux screen text.
+#
+# Public:   grab                     capture the current tmux pane, launch the
+#                                     fzf picker, print the selection to stdout.
+# Internal (invoked only by grab's own fzf ctrl-w reload binding):
+#           grab --cycle <tmpdir>    advance tokenization mode, print the new
+#                                     header line + candidates (fzf --header-lines=1)
+set -euo pipefail
+
+SCROLLBACK_LINES=2000
+
+tokenize_word() { tac "$1" | tr -s '[:space:]' '\n' | awk 'NF && !seen[$0]++'; }
+tokenize_line() { tac "$1" | awk 'NF && !seen[$0]++'; }
+tokenize_fine() { tac "$1" | grep -oE '[A-Za-z0-9_]+' | awk '!seen[$0]++'; }
+
+tokenize_mode() {
+	local mode="$1" raw="$2"
+	case "$mode" in
+	word) tokenize_word "$raw" ;;
+	line) tokenize_line "$raw" ;;
+	fine) tokenize_fine "$raw" ;;
+	*)
+		echo "grab: unknown mode '$mode'" >&2
+		exit 1
+		;;
+	esac
+}
+
+if [ "${BASH_SOURCE[0]}" = "$0" ]; then
+	:
+fi
