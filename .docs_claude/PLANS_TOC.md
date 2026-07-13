@@ -32,6 +32,7 @@ When a plan is added, copied, moved, renamed, or deleted:
 
 ## Chronological index
 
+- **2026-07-13** — [grab-preview-window.md](plans/completed/grab-preview-window.md) `bin/grab`
 - **2026-07-13** — [grab-screen-word-completion.md](plans/completed/grab-screen-word-completion.md) `bin/grab`, `.bash_tools`
 - **2026-07-12** — [render-markdown-code-block-background.md](plans/completed/render-markdown-code-block-background.md) `nvim/lua/custom/plugins/markdown.lua`
 - **2026-07-12** — [ugq-query-tui-quickfix.md](plans/completed/ugq-query-tui-quickfix.md) `.functions.sh`
@@ -298,6 +299,25 @@ When a plan is added, copied, moved, renamed, or deleted:
 > - `+ bin/grab` — `tokenize_word`/`tokenize_line`/`tokenize_fine`/`tokenize_mode` (dedup+reverse), `next_mode`/`header_line`/`emit_mode`/`cmd_cycle` (mode state machine), `main()` (tmux capture + fzf wiring), `--cycle` CLI dispatch
 > - `~ .bash_tools` — `_grab_insert()` + `bind -x`/`bind -m vi-insert -x`/`bind -m vi-command -x` on CTRL-G
 > - `+ ~/.local/bin/grab` (symlink, machine-local install state, not tracked)
+
+### [grab-preview-window.md](plans/completed/grab-preview-window.md)
+`~/dotfiles/bin/grab` · 2026-07-13
+> Adds an fzf preview window to `grab` (see grab-screen-word-completion.md
+> above), showing the full captured terminal screen below the candidate
+> list — static (not synced to the selected candidate), full raw scrollback
+> (not a truncated tail). Chose `--preview-window=down,60%` over a
+> `right,50%` side split after proving in a real tmux session that fzf runs
+> full-screen by default, so a below-split preview keeps close to the
+> pane's actual captured width and minimizes text reflow (multi-column `ls`
+> output, long log lines, wide prompts render faithfully instead of
+> wrapping). The whole-branch review caught a real quoting bug in the plan
+> doc's own illustrative Design snippet (single-quoted, would have broken
+> at runtime since `$tmpdir` isn't exported and fzf's preview subshell
+> can't see it) — the actual Implementation Plan step and shipped code
+> already had the correct double-quoted form.
+>
+> **Key changes:**
+> - `~ bin/grab` — `main()`'s fzf invocation gains `--preview "cat \"$tmpdir/raw\""` and `--preview-window=down,60%`
 
 ## 6. Shell: Git Helpers
 
