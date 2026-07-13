@@ -20,6 +20,8 @@ if command -v grab >/dev/null 2>&1; then
 		READLINE_POINT=$((READLINE_POINT + ${#sel}))
 	}
 	bind -x '"\C-g": _grab_insert'
+	bind -m vi-insert -x '"\C-g": _grab_insert'
+	bind -m vi-command -x '"\C-g": _grab_insert'
 fi
 
 if command -v yazi >/dev/null 2>&1; then
