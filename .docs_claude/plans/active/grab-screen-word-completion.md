@@ -241,7 +241,6 @@ Expected: FAIL — `bash: line 4: <path>/dotfiles/bin/grab: No such file or dire
 # Internal (invoked only by grab's own fzf ctrl-w reload binding):
 #           grab --cycle <tmpdir>    advance tokenization mode, print the new
 #                                     header line + candidates (fzf --header-lines=1)
-set -euo pipefail
 
 SCROLLBACK_LINES=2000
 
@@ -263,13 +262,25 @@ tokenize_mode() {
 }
 
 if [ "${BASH_SOURCE[0]}" = "$0" ]; then
-	:
+	set -euo pipefail
 fi
 ```
 
 Then: `chmod +x ~/dotfiles/bin/grab`
 
-(The trailing `if [ "${BASH_SOURCE[0]}" = "$0" ]; then :; fi` is a placeholder dispatch block, filled in by Task 3 — it's what lets this file be `source`d by tests without running anything, and later run directly as a CLI.)
+(The trailing `if [ "${BASH_SOURCE[0]}" = "$0" ]; then set -euo pipefail; fi` is a placeholder dispatch block, filled in by Task 3 — it's what lets this file be `source`d by tests without running anything, and later run directly as a CLI.)
+
+> **Note (added after Task 1 review):** `set -euo pipefail` is deliberately
+> **not** set at file scope. A task reviewer demonstrated that a top-level
+> `set -euo pipefail` leaks `errexit`/`nounset`/`pipefail` into whatever
+> shell `source`s this file — which is exactly how this task's own tests,
+> and Task 3's planned regression re-run, use it — and specifically breaks
+> testing the `tokenize_mode`/`cmd_cycle` unknown-mode error path (an
+> inherited `errexit` silently kills the sourcing test script instead of
+> letting it observe the nonzero exit). Task 3 sets `set -euo pipefail` as
+> the first line inside its real `if [ "${BASH_SOURCE[0]}" = "$0" ]; then`
+> block instead, so strict mode applies only when `grab` runs as a script,
+> never when it's sourced.
 
 - [ ] **Step 4: Run test to verify it passes**
 
@@ -429,7 +440,7 @@ git commit -m "grab: add mode cycling state machine"
 
 - [ ] **Step 1: Write the implementation**
 
-Replace the placeholder guard block at the end of `~/dotfiles/bin/grab` (`if [ "${BASH_SOURCE[0]}" = "$0" ]; then :; fi`) with:
+Replace the placeholder guard block at the end of `~/dotfiles/bin/grab` (`if [ "${BASH_SOURCE[0]}" = "$0" ]; then set -euo pipefail; fi`) with:
 
 ```bash
 main() {
@@ -449,6 +460,7 @@ main() {
 }
 
 if [ "${BASH_SOURCE[0]}" = "$0" ]; then
+	set -euo pipefail
 	case "${1:-}" in
 	--cycle) cmd_cycle "$2" ;;
 	"") main ;;
