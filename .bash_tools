@@ -11,6 +11,17 @@ if command -v fzf >/dev/null 2>&1; then
 	export FZF_COMPLETION_TRIGGER='~~'
 fi
 
+if command -v grab >/dev/null 2>&1; then
+	_grab_insert() {
+		local sel
+		sel=$(grab) || return
+		[ -n "$sel" ] || return
+		READLINE_LINE="${READLINE_LINE:0:$READLINE_POINT}$sel${READLINE_LINE:$READLINE_POINT}"
+		READLINE_POINT=$((READLINE_POINT + ${#sel}))
+	}
+	bind -x '"\C-g": _grab_insert'
+fi
+
 if command -v yazi >/dev/null 2>&1; then
 	# yazi cwd-on-exit wrapper
 	function y() {
