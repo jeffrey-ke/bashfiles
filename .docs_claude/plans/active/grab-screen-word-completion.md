@@ -100,9 +100,31 @@ if command -v grab >/dev/null 2>&1; then
     READLINE_LINE="${READLINE_LINE:0:$READLINE_POINT}$sel${READLINE_LINE:$READLINE_POINT}"  # NEW: splice at cursor
     READLINE_POINT=$((READLINE_POINT + ${#sel}))              # NEW: cursor lands after inserted text
   }
-  bind -x '"\C-g": _grab_insert'                               # NEW
+  bind -x '"\C-g": _grab_insert'                               # NEW: registers into whichever keymap is current
+  bind -m vi-insert -x '"\C-g": _grab_insert'                  # NEW: also vi-insert (see note below)
+  bind -m vi-command -x '"\C-g": _grab_insert'                 # NEW: also vi-command (see note below)
 fi
 ```
+
+> **Note (added after Task 4 review):** `bind -x` without `-m` registers only
+> into the keymap that's *current* at the time it runs — on this machine
+> that's `emacs`, since `machines/tesu.sh` switches to `set -o vi` later in
+> `~/.bashrc`'s sourcing order (`.bash_tools` sources before
+> `source-machine.sh`). Once vi mode activates, the emacs-only binding is
+> orphaned: registered, never consulted. A task reviewer's e2e verification
+> caught this — CTRL-G silently self-inserted a literal `^G` instead of
+> firing `_grab_insert` in a real interactive shell. Fixed by also binding
+> into the `vi-insert` and `vi-command` keymaps explicitly, so the binding
+> works regardless of editing mode. Verified harmless to override: default
+> `vi-insert` CTRL-G is `self-insert` (does nothing useful — literally
+> inserts a bell character); default `vi-command` CTRL-G is `abort`, the
+> same default the plan already chose to override for the `emacs` keymap.
+> **Flag order matters:** `-m KEYMAP` must come *before* `-x` — `bind -x -m
+> vi-insert '"\C-g": ...'` errors with `bind: -m: first non-whitespace
+> character is not` and `readline: vi-insert: no key sequence terminator`;
+> `bind -m vi-insert -x '"\C-g": ...'` is correct. Caught and fixed while
+> proving this exact fix in a real `set -o vi` tmux session before writing
+> it here — the first attempt used the wrong order.
 
 ## Error handling / edge cases
 
@@ -672,8 +694,21 @@ if command -v grab >/dev/null 2>&1; then
 		READLINE_POINT=$((READLINE_POINT + ${#sel}))
 	}
 	bind -x '"\C-g": _grab_insert'
+	bind -m vi-insert -x '"\C-g": _grab_insert'
+	bind -m vi-command -x '"\C-g": _grab_insert'
 fi
 ```
+
+`bind -x` with no `-m` only registers into whichever readline keymap is
+*current* when it runs — that's `emacs` at this point in `.bashrc`'s
+sourcing order. If the user's shell later switches to vi mode (e.g. via
+`set -o vi` in a machine-specific config sourced later), that emacs-only
+binding is orphaned. The two extra lines make CTRL-G work regardless of
+editing mode — see the Design section's note above for why overriding each
+mode's default CTRL-G behavior is safe. **Flag order matters:** `-m KEYMAP`
+must precede `-x` (`bind -m vi-insert -x '...'`), not follow it — the
+reversed order fails with a `bind: -m: ...` / `readline: ... no key
+sequence terminator` error.
 
 - [ ] **Step 4: Run test to verify it passes**
 
@@ -720,6 +755,75 @@ rm -rf /tmp/grab-tests/stub-bin2
 ```
 
 Once `bin/grab` (Task 3) is actually installed on `PATH` ahead of any stub, this same CTRL-G binding drives the real fzf picker — already proven interactively in Task 3 Steps 4-6.
+
+- [ ] **Step 5b: Verify CTRL-G under `set -o vi`**
+
+This machine's own shell runs in vi editing mode (`machines/tesu.sh` sets
+`set -o vi`, sourced after `.bash_tools` in `~/.bashrc`), so Step 5 alone
+doesn't prove CTRL-G works in the user's actual day-to-day shell — a plain
+`bind -x '"\C-g": ...'` only registers into whichever keymap is current at
+that point (`emacs`), and is orphaned once vi mode activates. This step
+proves the `vi-insert`/`vi-command` bindings added to `.bash_tools` (Step 3)
+close that gap:
+
+```bash
+mkdir -p /tmp/grab-tests/stub-bin3
+cat > /tmp/grab-tests/stub-bin3/grab <<'EOS'
+#!/bin/bash
+echo "--flag=value"
+EOS
+chmod +x /tmp/grab-tests/stub-bin3/grab
+
+tmux new-session -d -s vifixtest -x 100 -y 25
+tmux send-keys -t vifixtest "export PATH=\"/tmp/grab-tests/stub-bin3:\$PATH\"" Enter
+sleep 0.3
+tmux send-keys -t vifixtest "set -o vi" Enter
+sleep 0.3
+tmux send-keys -t vifixtest "clear" Enter
+sleep 0.3
+tmux send-keys -t vifixtest "echo "
+sleep 0.3
+tmux send-keys -t vifixtest C-g
+sleep 0.5
+tmux capture-pane -p -t vifixtest
+```
+Expected (vi-insert): last line reads `echo --flag=value`. (Verified in
+planning — this exact transcript, byte for byte: `(base) ✔
+~/repo/refseg-workspace [master|✚ 4…39⚑ 2]` then `16:29 $ echo
+--flag=value`.)
+
+```bash
+tmux kill-session -t vifixtest 2>/dev/null
+```
+
+Also check vi-**command** mode (after `Esc`, before typing resumes):
+
+```bash
+tmux new-session -d -s vicmdtest -x 100 -y 25
+tmux send-keys -t vicmdtest "export PATH=\"/tmp/grab-tests/stub-bin3:\$PATH\"" Enter
+sleep 0.3
+tmux send-keys -t vicmdtest "set -o vi" Enter
+sleep 0.3
+tmux send-keys -t vicmdtest "clear" Enter
+sleep 0.3
+tmux send-keys -t vicmdtest "echo x"
+sleep 0.3
+tmux send-keys -t vicmdtest Escape
+sleep 0.3
+tmux send-keys -t vicmdtest "0"
+sleep 0.3
+tmux send-keys -t vicmdtest C-g
+sleep 0.5
+tmux capture-pane -p -t vicmdtest
+```
+Expected: after `Esc` (enter vi-command mode) then `0` (cursor to start of
+line), CTRL-G splices at position 0: last line reads `--flag=valueecho x`.
+(Verified in planning — this exact transcript, byte for byte.)
+
+```bash
+tmux kill-session -t vicmdtest 2>/dev/null
+rm -rf /tmp/grab-tests/stub-bin3
+```
 
 - [ ] **Step 6: Commit**
 
