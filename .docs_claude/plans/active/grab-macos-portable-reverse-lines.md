@@ -230,7 +230,7 @@ git commit -m "grab: replace GNU-only tac with a portable rev_lines() helper"
 
 ## Self-Review
 
-**Spec coverage:** `rev_lines()` added, byte-identical to `tac` (Step 1/4), all 3 tokenizers switched (Step 3), no `tac` remaining (Step 5), Linux regression check (Step 6). macOS live verification explicitly out of scope per the spec — noted, not silently dropped.
+**Spec coverage:** `rev_lines()` added, byte-identical to `tac` for newline-terminated input (Step 1/4 — see Design section's "Known, accepted scope limit" note for the no-trailing-newline divergence), all 3 tokenizers switched (Step 3), no `tac` remaining (Step 5), Linux regression check (Step 6). macOS live verification explicitly out of scope per the spec — noted, not silently dropped.
 
 **Placeholder scan:** none — every step has literal code and expected output.
 
