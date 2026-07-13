@@ -26,6 +26,36 @@ tokenize_mode() {
 	esac
 }
 
+next_mode() {
+	case "$1" in
+	word) echo line ;;
+	line) echo fine ;;
+	fine) echo word ;;
+	*)
+		echo "grab: unknown mode '$1'" >&2
+		exit 1
+		;;
+	esac
+}
+
+header_line() {
+	printf 'mode: %s  (^W cycle mode · ^Y copy)' "$1"
+}
+
+emit_mode() {
+	local mode="$1" raw="$2"
+	header_line "$mode"
+	printf '\n'
+	tokenize_mode "$mode" "$raw"
+}
+
+cmd_cycle() {
+	local tmpdir="$1" mode
+	mode=$(next_mode "$(cat "$tmpdir/state")")
+	echo "$mode" >"$tmpdir/state"
+	emit_mode "$mode" "$tmpdir/raw"
+}
+
 if [ "${BASH_SOURCE[0]}" = "$0" ]; then
 	set -euo pipefail
 fi
