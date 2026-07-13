@@ -15,11 +15,23 @@ One change to `bin/grab`'s `main()`, in the existing fzf invocation:
 
 ```
 emit_mode word "$tmpdir/raw" | fzf --reverse --header-lines=1 \
-    --preview 'cat "$tmpdir/raw"' \
+    --preview "cat \"$tmpdir/raw\"" \
     --preview-window=down,60% \
     --bind "ctrl-w:reload(grab --cycle \"$tmpdir\")" \
     --bind "ctrl-y:execute-silent(printf %s {} | xclip -selection clipboard 2>/dev/null || true)+abort"
 ```
+
+**Quoting note (fixed after final review):** `--preview` must be
+double-quoted with the inner quotes escaped, matching the existing
+`ctrl-w:reload(...)` binding's style — not single-quoted. `$tmpdir` is a
+plain (non-exported) shell variable, so it must be expanded by the
+*launching* shell before `fzf` ever sees the string; a single-quoted
+`'cat "$tmpdir/raw"'` would pass `$tmpdir` through literally, and fzf's
+preview subshell (which doesn't inherit unexported variables) would try to
+`cat "/raw"` and fail. The Implementation Plan's Step 2 code below already
+uses the correct form; this Design snippet originally had the broken one —
+caught by the final whole-branch review, not by any test (the implementer
+followed Step 2, not this snippet).
 
 - **Content:** the full captured scrollback (`$tmpdir/raw`, already written once per invocation and shared by all three tokenization modes) — not a truncated tail. Static: the preview does not scroll/highlight to match the currently-selected candidate; it always shows the same view, letting fzf's own preview-window scrolling (mouse/keys) be the user's control.
 - **Layout:** below the candidate list, `--preview-window=down,60%`, not a side split. Proven in a real tmux session before writing this doc: fzf runs full-screen (no `--height` set), so a `down` preview gets close to the terminal's actual width — matching the width `tmux capture-pane` originally captured at, so lines render with minimal reflow. A `right,50%` split would halve the effective width and cause more wrapping of exactly the wide content (multi-column `ls`, long log lines, wide prompts) this feature exists to show faithfully.
