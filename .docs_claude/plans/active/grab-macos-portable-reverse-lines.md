@@ -30,9 +30,20 @@ tokenize_fine() { rev_lines "$1" | grep -oE '[A-Za-z0-9_]+' | awk '!seen[$0]++';
 - **Portable, no branching.** Plain POSIX awk (arrays, `NR`, `END` block,
   a `for` loop) — no GNU extensions. Behaves identically on macOS's BSD
   awk and Linux's gawk; no `command -v`/OS detection needed anywhere.
-- **Verified byte-identical to `tac`'s current output** on the same
-  fixture used to build/review `bin/grab`'s original tokenizer tests —
-  confirmed via a direct diff before writing this doc.
+- **Verified byte-identical to `tac`'s current output for
+  newline-terminated input** on the same fixture used to build/review
+  `bin/grab`'s original tokenizer tests — confirmed via a direct diff
+  before writing this doc.
+- **Known, accepted scope limit (found during task review):** `rev_lines()`
+  is *not* byte-identical to `tac` for input that lacks a trailing
+  newline — `tac` merges the last two logical lines into one output line
+  in that case (`printf 'a\nb\nc' | tac` → `"cb"`, `"a"`), while
+  `rev_lines()` always keeps them separate (`"c"`, `"b"`, `"a"`). This
+  can't fire in `grab`'s real pipeline: `rev_lines`'s only caller is
+  `tmux capture-pane -p`'s output, which always terminates every line —
+  including the last — with `\n` (verified directly). Accepted as-is:
+  `rev_lines()` is scoped to `grab`'s actual usage, not a fully general
+  drop-in `tac` replacement for arbitrary input.
 - **Fits existing style.** `bin/grab` already leans on awk for every
   dedup stage (`awk 'NF && !seen[$0]++'`); this keeps the file to one
   utility language for text processing instead of introducing coreutils
@@ -52,7 +63,9 @@ tokenize_fine() { rev_lines "$1" | grep -oE '[A-Za-z0-9_]+' | awk '!seen[$0]++';
 
 - Re-run the existing tokenizer test fixture (word/line/fine dedup+reverse
   ordering) — output must be byte-identical to the current `tac`-based
-  behavior, since this is a pure substitution with no behavior change.
+  behavior for newline-terminated input (`grab`'s only real input shape,
+  via `tmux capture-pane -p`) — see the known no-trailing-newline scope
+  limit above, accepted as-is.
 - `grep -c tac bin/grab` returns 0 after the change — no remaining `tac`
   usage anywhere in the file.
 - Full CTRL-G smoke test on this machine (Linux/tesu) — must still work
@@ -78,7 +91,7 @@ tokenize_fine() { rev_lines "$1" | grep -oE '[A-Za-z0-9_]+' | awk '!seen[$0]++';
 
 ## Global Constraints
 
-- `rev_lines()`'s output must be byte-identical to `tac`'s output for the same input — this is a pure substitution, not a behavior change.
+- `rev_lines()`'s output must be byte-identical to `tac`'s output for newline-terminated input — this is a pure substitution for `grab`'s actual usage, not a behavior change. (Known, user-accepted scope limit: diverges from `tac` only for input lacking a trailing newline, which `grab`'s sole caller — `tmux capture-pane -p` — never produces. See the Design section's "Known, accepted scope limit" note.)
 - No runtime OS/tool detection (`command -v tac`, `uname`, etc.) — single portable implementation only.
 - `tac` must not appear anywhere in `bin/grab` after this change.
 
@@ -90,7 +103,7 @@ tokenize_fine() { rev_lines "$1" | grep -oE '[A-Za-z0-9_]+' | awk '!seen[$0]++';
 - Modify: `~/dotfiles/bin/grab:12-14` (the three tokenizer functions), and add `rev_lines()` immediately above them.
 
 **Interfaces:**
-- Produces: `rev_lines <file>` — prints the file's lines in reverse order (last line first), byte-identical to `tac <file>`.
+- Produces: `rev_lines <file>` — prints the file's lines in reverse order (last line first), byte-identical to `tac <file>` for newline-terminated input.
 - Consumes: nothing new — `tokenize_word`/`tokenize_line`/`tokenize_fine` keep their existing `<rawfile>` argument contract unchanged.
 
 - [ ] **Step 1: Write the failing test**
