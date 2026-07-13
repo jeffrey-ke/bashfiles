@@ -32,6 +32,7 @@ When a plan is added, copied, moved, renamed, or deleted:
 
 ## Chronological index
 
+- **2026-07-13** — [grab-preview-follow-scroll.md](plans/completed/grab-preview-follow-scroll.md) `bin/grab`
 - **2026-07-13** — [grab-preview-window.md](plans/completed/grab-preview-window.md) `bin/grab`
 - **2026-07-13** — [grab-screen-word-completion.md](plans/completed/grab-screen-word-completion.md) `bin/grab`, `.bash_tools`
 - **2026-07-12** — [render-markdown-code-block-background.md](plans/completed/render-markdown-code-block-background.md) `nvim/lua/custom/plugins/markdown.lua`
@@ -318,6 +319,22 @@ When a plan is added, copied, moved, renamed, or deleted:
 >
 > **Key changes:**
 > - `~ bin/grab` — `main()`'s fzf invocation gains `--preview "cat \"$tmpdir/raw\""` and `--preview-window=down,60%`
+
+### [grab-preview-follow-scroll.md](plans/completed/grab-preview-follow-scroll.md)
+`~/dotfiles/bin/grab` · 2026-07-13
+> One-flag follow-up to grab-preview-window.md: `--preview-window=down,60%`
+> → `down,60%,follow`, so the preview starts scrolled to the bottom (most
+> recent captured lines) instead of the top, and re-anchors to the bottom
+> instead of the top on every re-render. Verified directly via tmux that
+> fzf has no mechanism to preserve an arbitrary manually-scrolled position
+> across a re-render (triggered whenever the highlighted candidate changes
+> — typing that reorders the top match, or arrow navigation): the only
+> choice is a fixed re-anchor point, "always top" (default) or "always
+> bottom" (`follow`). User confirmed always-bottom, with manual scroll-up
+> to peek still working until the next re-render, was the wanted tradeoff.
+>
+> **Key changes:**
+> - `~ bin/grab` — `main()`'s `--preview-window` value gains `,follow`
 
 ## 6. Shell: Git Helpers
 
