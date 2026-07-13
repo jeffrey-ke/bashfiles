@@ -69,7 +69,7 @@ main() {
 
 	emit_mode word "$tmpdir/raw" | fzf --reverse --header-lines=1 \
 		--preview "cat \"$tmpdir/raw\"" \
-		--preview-window=down,60% \
+		--preview-window=down,60%,follow \
 		--bind "ctrl-w:reload(grab --cycle \"$tmpdir\")" \
 		--bind "ctrl-y:execute-silent(printf %s {} | xclip -selection clipboard 2>/dev/null || true)+abort"
 }
