@@ -15,16 +15,23 @@ Homebrew-installed 4.x/5.x) — macOS ships 3.2 forever due to the GPLv3
 license switch. This changes sub-project 4 below: it's a bash-3.2
 compatibility problem, not a zsh-widget problem.
 
-## 1. Portable reverse-lines (`tac` fix) — IN PROGRESS (chosen first)
+## 1. Portable reverse-lines (`tac` fix) — CODE DONE, macOS verification OPEN
 
-`bin/grab:12-14` — all three tokenizers (`tokenize_word`, `tokenize_line`,
-`tokenize_fine`) start with `tac "$1"`. `tac` is GNU coreutils; stock macOS
-(BSD userland, even with Xcode CLT) has no `tac`. Homebrew coreutils
-installs it as `gtac` unless the gnubin dir is prepended to `PATH`.
-**Failure mode:** CTRL-G opens fzf to an empty candidate list (`tac:
-command not found` on stderr, hidden behind the fullscreen fzf UI).
-BSD equivalent: `tail -r`. Fully portable alternative: a pure-awk line
-reverser.
+Shipped: `~/dotfiles/bin/grab` now uses a portable `rev_lines()` (POSIX
+awk) instead of GNU-only `tac`, in all three tokenizers. Plan/spec:
+[grab-macos-portable-reverse-lines.md](../plans/active/grab-macos-portable-reverse-lines.md)
+(deliberately left in `plans/active/`, not moved to `completed/`, until
+the open item below is closed). Task-reviewed (one round: found and
+accepted a documented edge-case divergence from `tac` on non-newline-
+terminated input, which can't fire in `grab`'s real pipeline) and
+whole-branch reviewed (Ready to merge: Yes). Verified portable-by-
+construction (plain POSIX awk, no GNU extensions) and cross-checked
+against `mawk` (a non-gawk implementation) as a portability proxy.
+
+**Still open: no Mac available in this session to actually run it on
+macOS.** Move this plan to `completed/` and update `PLANS_TOC.md` only
+once someone runs `grab` on `jeffpro` (or another Mac) and confirms it
+works there.
 
 ## 2. Portable clipboard (`xclip` fix)
 
