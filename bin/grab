@@ -9,9 +9,11 @@
 
 SCROLLBACK_LINES=2000
 
-tokenize_word() { tac "$1" | tr -s '[:space:]' '\n' | awk 'NF && !seen[$0]++'; }
-tokenize_line() { tac "$1" | awk 'NF && !seen[$0]++'; }
-tokenize_fine() { tac "$1" | grep -oE '[A-Za-z0-9_]+' | awk '!seen[$0]++'; }
+rev_lines() { awk '{a[NR]=$0} END{for(i=NR;i>=1;i--) print a[i]}' "$1"; }
+
+tokenize_word() { rev_lines "$1" | tr -s '[:space:]' '\n' | awk 'NF && !seen[$0]++'; }
+tokenize_line() { rev_lines "$1" | awk 'NF && !seen[$0]++'; }
+tokenize_fine() { rev_lines "$1" | grep -oE '[A-Za-z0-9_]+' | awk '!seen[$0]++'; }
 
 tokenize_mode() {
 	local mode="$1" raw="$2"
