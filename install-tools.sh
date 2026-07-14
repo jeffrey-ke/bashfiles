@@ -69,7 +69,7 @@ if [ "${BASH_SOURCE[0]}" = "$0" ]; then
 		if command -v "$tool" >/dev/null 2>&1 && "$tool" --version >/dev/null 2>&1; then
 			echo "✓ $tool already installed ($("$tool" --version 2>/dev/null | head -1))"
 		elif "install_$tool" >/dev/null 2>&1 && command -v "$tool" >/dev/null 2>&1 && "$tool" --version >/dev/null 2>&1; then
-			echo "✓ installed $tool -> $BIN"
+			echo "✓ installed $tool -> $(command -v "$tool")"
 		else
 			echo "✗ $tool install failed — re-run ./install-tools.sh later" >&2
 		fi
