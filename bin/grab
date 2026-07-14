@@ -58,6 +58,18 @@ cmd_cycle() {
 	emit_mode "$mode" "$tmpdir/raw"
 }
 
+PREVIEW_CONTEXT_LINES=25
+
+cmd_preview_context() {
+	local raw="$1" needle="$2" n
+	n=$(grep -nFw -- "$needle" "$raw" | tail -1 | cut -d: -f1)
+	if [ -z "$n" ]; then
+		tail -n "$((PREVIEW_CONTEXT_LINES * 2))" "$raw"
+		return
+	fi
+	sed -n "$(( n>PREVIEW_CONTEXT_LINES ? n-PREVIEW_CONTEXT_LINES : 1 )),$(( n+PREVIEW_CONTEXT_LINES ))p" "$raw"
+}
+
 main() {
 	[ -n "${TMUX:-}" ] || {
 		echo "grab: not inside tmux" >&2
@@ -70,8 +82,8 @@ main() {
 	echo word >"$tmpdir/state"
 
 	emit_mode word "$tmpdir/raw" | fzf --reverse --header-lines=1 \
-		--preview "cat \"$tmpdir/raw\"" \
-		--preview-window=down,60%,follow \
+		--preview "grab --preview-context \"$tmpdir/raw\" {}" \
+		--preview-window=down,60% \
 		--bind "ctrl-w:reload(grab --cycle \"$tmpdir\")" \
 		--bind "ctrl-y:execute-silent(printf %s {} | xclip -selection clipboard 2>/dev/null || true)+abort"
 }
@@ -80,6 +92,7 @@ if [ "${BASH_SOURCE[0]}" = "$0" ]; then
 	set -euo pipefail
 	case "${1:-}" in
 	--cycle) cmd_cycle "$2" ;;
+	--preview-context) cmd_preview_context "$2" "$3" ;;
 	"") main ;;
 	*)
 		echo "grab: unknown argument '$1'" >&2
