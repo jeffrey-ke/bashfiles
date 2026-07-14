@@ -179,13 +179,13 @@ most recent line anyway.
 
 **Architecture:** One new function plus one new CLI dispatch case, both following the exact patterns `cmd_cycle`/`--cycle` already established in this file. `main()`'s fzf `--preview`/`--preview-window` arguments change; nothing else in the file changes.
 
-**Tech Stack:** bash, POSIX `grep -F` (fixed-string) + `-w` (whole-word), `sed`, `tail`, fzf 0.70 (`{}` placeholder, `$FZF_PREVIEW_LINES`).
+**Tech Stack:** bash, POSIX `grep -F` (fixed-string) + `-w` (whole-word), `sed`, `tail`, fzf 0.70 (`{}` placeholder).
 
 ## Global Constraints
 
 - Search must be fixed-string (`-F`) and whole-word (`-w`) — no plain substring matching (verified: without `-w`, a short token like `in` can falsely match inside an unrelated longer word like `running`).
 - The occurrence used must be the *last* (most recent) match (`tail -1`) — matches dedup's own "most recent occurrence wins" semantics.
-- Context window size must come from `$FZF_PREVIEW_LINES` (with a `20`-line default when unset), not a hardcoded constant.
+- Context window size is a plain constant, `PREVIEW_CONTEXT_LINES=25` (same pattern as the existing `SCROLLBACK_LINES=2000`) — symmetric, *not* derived from `$FZF_PREVIEW_LINES`/pane height, and not hidden behind an environment variable.
 - `{}` in the `--preview` command string must be used bare, with no extra quotes added around it — fzf auto-quotes it, and adding your own quotes on top is the documented "common mistake."
 - `,follow` is removed from `--preview-window` — superseded by this feature, not layered alongside it.
 
@@ -194,10 +194,10 @@ most recent line anyway.
 ### Task 1: Add `cmd_preview_context()` and wire it in
 
 **Files:**
-- Modify: `~/dotfiles/bin/grab` (add `cmd_preview_context()` after `cmd_cycle()`; add a `--preview-context` case to the CLI dispatch; modify `main()`'s fzf invocation)
+- Modify: `~/dotfiles/bin/grab` (add `PREVIEW_CONTEXT_LINES` and `cmd_preview_context()` after `cmd_cycle()`; add a `--preview-context` case to the CLI dispatch; modify `main()`'s fzf invocation)
 
 **Interfaces:**
-- Produces: `cmd_preview_context <rawfile> <needle>` — prints a window of context from `<rawfile>` around the last whole-word match of `<needle>`, sized to `$FZF_PREVIEW_LINES` (default 20), or the last `$FZF_PREVIEW_LINES` lines of `<rawfile>` if no match is found.
+- Produces: `cmd_preview_context <rawfile> <needle>` — prints a window of `PREVIEW_CONTEXT_LINES` lines before and after the last whole-word match of `<needle>` in `<rawfile>`, or the last `PREVIEW_CONTEXT_LINES * 2` lines of `<rawfile>` if no match is found.
 - Consumes: nothing new from earlier tasks — this is a single, self-contained task.
 
 - [ ] **Step 1: Write the failing test**
@@ -208,6 +208,7 @@ cat > /tmp/grab-tests/test_preview_context.sh <<'EOF'
 #!/usr/bin/env bash
 set -uo pipefail
 source "$1"
+PREVIEW_CONTEXT_LINES=3  # override the file's default (25) with a small value for a readable fixture
 
 raw=$(mktemp)
 cat >"$raw" <<'RAW'
@@ -236,22 +237,17 @@ check() {
 	fi
 }
 
-got1=$(FZF_PREVIEW_LINES=6 cmd_preview_context "$raw" "running: --flag=value --other=1")
+got1=$(cmd_preview_context "$raw" "running: --flag=value --other=1")
 want1=$'line 6 filler\nline 7 filler\nline 8 filler\nrunning: --flag=value --other=1\nline 10 filler'
-check "match on line 9, window sized to FZF_PREVIEW_LINES" "$got1" "$want1"
+check "match on line 9, symmetric PREVIEW_CONTEXT_LINES window" "$got1" "$want1"
 
-got2=$(FZF_PREVIEW_LINES=6 cmd_preview_context "$raw" "in")
+got2=$(cmd_preview_context "$raw" "in")
 want2=$'line 1 filler\nline 2 filler\nTraceback: src/foo/bar.py:123: in load_config(path="~/x.yaml")\nline 4 filler\nline 5 filler\nline 6 filler'
 check "word-boundary match on line 3, not the substring inside 'running' on line 9" "$got2" "$want2"
 
-got3=$(FZF_PREVIEW_LINES=6 cmd_preview_context "$raw" "xyz123nonexistent")
+got3=$(cmd_preview_context "$raw" "xyz123nonexistent")
 want3=$'line 5 filler\nline 6 filler\nline 7 filler\nline 8 filler\nrunning: --flag=value --other=1\nline 10 filler'
-check "no-match fallback shows last FZF_PREVIEW_LINES lines" "$got3" "$want3"
-
-unset FZF_PREVIEW_LINES
-got4=$(cmd_preview_context "$raw" "xyz123nonexistent")
-want4=$'line 1 filler\nline 2 filler\nTraceback: src/foo/bar.py:123: in load_config(path="~/x.yaml")\nline 4 filler\nline 5 filler\nline 6 filler\nline 7 filler\nline 8 filler\nrunning: --flag=value --other=1\nline 10 filler'
-check "no-match fallback with unset FZF_PREVIEW_LINES defaults to 20 (whole 10-line file)" "$got4" "$want4"
+check "no-match fallback shows last PREVIEW_CONTEXT_LINES*2 lines" "$got3" "$want3"
 
 rm -f "$raw"
 exit $fail
@@ -259,7 +255,7 @@ EOF
 chmod +x /tmp/grab-tests/test_preview_context.sh
 ```
 
-Note: Test 2 is the key regression guard for the word-boundary requirement — the fixture deliberately places the standalone `in` (line 3, inside `"... 123: in load_config..."`) *before* the substring-only occurrence inside `running` (line 9), so that a naive non-word-boundary search would incorrectly pick line 9 (the later line) instead of the correct line 3.
+Note: Test 2 is the key regression guard for the word-boundary requirement — the fixture deliberately places the standalone `in` (line 3, inside `"... 123: in load_config..."`) *before* the substring-only occurrence inside `running` (line 9), so that a naive non-word-boundary search would incorrectly pick line 9 (the later line) instead of the correct line 3. The test overrides `PREVIEW_CONTEXT_LINES` to `3` *after* sourcing `bin/grab` (sourcing runs the file's own `PREVIEW_CONTEXT_LINES=25` assignment, so the override must come after, not before) — `cmd_preview_context` reads the variable at call time, so this is safe and doesn't require touching the real file's default.
 
 - [ ] **Step 2: Run test to verify it fails**
 
@@ -271,15 +267,16 @@ Expected: FAIL — `cmd_preview_context: command not found` (function doesn't ex
 In `~/dotfiles/bin/grab`, add immediately after the `cmd_cycle()` function (before `main()`):
 
 ```bash
+PREVIEW_CONTEXT_LINES=25
+
 cmd_preview_context() {
-	local raw="$1" needle="$2" n half
+	local raw="$1" needle="$2" n
 	n=$(grep -nFw -- "$needle" "$raw" | tail -1 | cut -d: -f1)
 	if [ -z "$n" ]; then
-		tail -n "${FZF_PREVIEW_LINES:-20}" "$raw"
+		tail -n "$((PREVIEW_CONTEXT_LINES * 2))" "$raw"
 		return
 	fi
-	half=$(( ${FZF_PREVIEW_LINES:-20} / 2 ))
-	sed -n "$(( n>half ? n-half : 1 )),$(( n+half ))p" "$raw"
+	sed -n "$(( n>PREVIEW_CONTEXT_LINES ? n-PREVIEW_CONTEXT_LINES : 1 )),$(( n+PREVIEW_CONTEXT_LINES ))p" "$raw"
 }
 ```
 
@@ -312,12 +309,44 @@ with:
 Run: `bash /tmp/grab-tests/test_preview_context.sh ~/dotfiles/bin/grab`
 Expected:
 ```
-PASS: match on line 9, window sized to FZF_PREVIEW_LINES
+PASS: match on line 9, symmetric PREVIEW_CONTEXT_LINES window
 PASS: word-boundary match on line 3, not the substring inside 'running' on line 9
-PASS: no-match fallback shows last FZF_PREVIEW_LINES lines
-PASS: no-match fallback with unset FZF_PREVIEW_LINES defaults to 20 (whole 10-line file)
+PASS: no-match fallback shows last PREVIEW_CONTEXT_LINES*2 lines
 ```
 (Verified in planning — this exact test, run against this exact implementation, produced exactly this output.)
+
+- [ ] **Step 4b: Confirm the real (unoverridden) default actually shows a symmetric window bigger than a typical pane**
+
+```bash
+cat > /tmp/grab-tests/test_preview_context_default.sh <<'EOF'
+#!/usr/bin/env bash
+set -uo pipefail
+source "$1"
+
+raw=$(mktemp)
+cat >"$raw" <<'RAW'
+line 1 filler
+line 2 filler
+Traceback: src/foo/bar.py:123: in load_config(path="~/x.yaml")
+line 4 filler
+line 5 filler
+line 6 filler
+line 7 filler
+line 8 filler
+running: --flag=value --other=1
+line 10 filler
+RAW
+
+echo "PREVIEW_CONTEXT_LINES default: $PREVIEW_CONTEXT_LINES"
+echo "line count with default sizing (window bigger than this 10-line fixture, so whole file):"
+cmd_preview_context "$raw" "running: --flag=value --other=1" | wc -l
+
+rm -f "$raw"
+EOF
+chmod +x /tmp/grab-tests/test_preview_context_default.sh
+bash /tmp/grab-tests/test_preview_context_default.sh ~/dotfiles/bin/grab
+```
+Expected: `PREVIEW_CONTEXT_LINES default: 25` and `10` (the whole 10-line fixture, since a ±25 window covers a 10-line file entirely — confirms the real, unoverridden default is genuinely larger than this small test fixture, consistent with being generous for real-sized captures).
 
 - [ ] **Step 5: Update `main()`'s fzf invocation**
 
@@ -406,7 +435,7 @@ git commit -m "grab: preview follows the highlighted candidate's actual position
 
 ## Self-Review
 
-**Spec coverage:** `cmd_preview_context()` matching all documented behaviors (window sizing, word-boundary correctness, most-recent-occurrence, no-match fallback, `$FZF_PREVIEW_LINES` default) — Step 1/4. CLI dispatch wiring — Step 3. `main()`'s `--preview`/`--preview-window` change (bare `{}`, `,follow` dropped) — Step 5. Real end-to-end preview-follows-selection behavior — Step 6. `ctrl-w`/`ctrl-y`/Enter regression — Step 7. Every spec requirement has a step.
+**Spec coverage:** `cmd_preview_context()` matching all documented behaviors (symmetric `PREVIEW_CONTEXT_LINES` window sizing, word-boundary correctness, most-recent-occurrence, no-match fallback) — Step 1/4, real-default-value check — Step 4b. CLI dispatch wiring — Step 3. `main()`'s `--preview`/`--preview-window` change (bare `{}`, `,follow` dropped) — Step 5. Real end-to-end preview-follows-selection behavior — Step 6. `ctrl-w`/`ctrl-y`/Enter regression — Step 7. Every spec requirement has a step.
 
 **Placeholder scan:** none — every step has literal code and literal expected output, all verified during planning against this exact implementation.
 
