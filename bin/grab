@@ -61,13 +61,18 @@ cmd_cycle() {
 PREVIEW_CONTEXT_LINES=25
 
 cmd_preview_context() {
-	local raw="$1" needle="$2" n
+	local raw="$1" needle="$2" n before after start end
 	n=$(grep -nFw -- "$needle" "$raw" | tail -1 | cut -d: -f1) || true
 	if [ -z "$n" ]; then
 		tail -n "$((PREVIEW_CONTEXT_LINES * 2))" "$raw"
 		return
 	fi
-	sed -n "$(( n>PREVIEW_CONTEXT_LINES ? n-PREVIEW_CONTEXT_LINES : 1 )),$(( n+PREVIEW_CONTEXT_LINES ))p" "$raw"
+	before=$(( ${FZF_PREVIEW_LINES:-$PREVIEW_CONTEXT_LINES} / 2 ))
+	after=$PREVIEW_CONTEXT_LINES
+	start=$(( n>before ? n-before : 1 ))
+	end=$(( n+after ))
+	awk -v n="$n" -v s="$start" -v e="$end" \
+		'NR>=s && NR<=e { if (NR==n) printf "\033[7m%s\033[0m\n", $0; else print }' "$raw"
 }
 
 main() {
