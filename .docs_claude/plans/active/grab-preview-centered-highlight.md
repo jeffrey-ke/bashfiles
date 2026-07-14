@@ -1,164 +1,120 @@
-# `grab`: auto-centered preview with match highlighting
+# `grab`: pane-centered preview with match highlighting
 
 ## Goal
 
-Supersedes
-[grab-preview-follow-match.md](../completed/grab-preview-follow-match.md).
-Real usage revealed that approach's search-based design (the preview
-command searches `$tmpdir/raw` for the candidate's text at render time)
-cannot auto-center the match: fzf always starts rendering a preview
-command's output from line 1, so a context window bigger than the pane
-(`PREVIEW_CONTEXT_LINES=25`) pushes the match below the initially-visible
-area, requiring a manual scroll that lands wherever the user stops, not
-centered. Switch to the position-tagged approach considered and rejected
-during that feature's original brainstorm — tokenizers carry each
-candidate's source line number, driving fzf's *native* preview scroll
-(which auto-centers correctly, since it isn't limited to "render from line
-1 of the command's output"). Also add: highlight the matched line within
-the preview, so it's visually distinct from surrounding context.
+Revises [grab-preview-follow-match.md](../completed/grab-preview-follow-match.md)'s
+search-based `cmd_preview_context` so the matched line renders near the
+vertical middle of the preview pane on initial render (no manual scroll
+needed), and highlights the matched line. This supersedes an earlier draft
+of this same ticket that proposed switching to position-tagged tokenizers
+and native `--preview-window` scrolling (a bigger restructure — tokenizer
+signatures, `--delimiter`/`--with-nth`, a header-line hack, an offset
+formula fed from `tmux display-message`). A pane-derived asymmetric
+context window achieves the same visible result without any of that.
 
 ## Design
 
-### Tokenizers carry a line-number field
+### Why the current window puts the match near the bottom
 
-`main()` numbers `$tmpdir/raw` once (before any reversal), producing
-`$tmpdir/numbered`:
+The shipped `PREVIEW_CONTEXT_LINES=25` builds a **symmetric** window (25
+lines before the match, 25 after — 51 total), with the match at relative
+row 26. fzf's preview pane always renders a preview command's output
+starting from line 1. For real-use pane heights, `$FZF_PREVIEW_LINES`
+(exported into the preview command's environment) lands in the high
+20s/high 30s — per the empirically derived table from this ticket's
+original brainstorm (pane height 20/30/50 → `$FZF_PREVIEW_LINES` 9/15/27).
+At `$FZF_PREVIEW_LINES` ≈ 27, row 26 of the window renders right at the
+bottom edge of the initially visible area — matching the reported symptom
+exactly.
+
+### Fix: cap only the "before" side to half the pane height
+
+`$FZF_PREVIEW_LINES` is available directly inside `cmd_preview_context` —
+it *is* the preview command, so no `tmux display-message` query or offset
+threaded through `main()` is needed. Cap the *before* context to half of
+it so the match's relative row is always ≈ half of what's visible,
+landing near vertical middle on first render:
+
 ```bash
-awk '{print NR"\t"$0}' "$tmpdir/raw" > "$tmpdir/numbered"
-```
-Each tokenizer still calls the existing `rev_lines` (unchanged) on this
-numbered file, then splits the *text* portion (field 2) per its mode while
-carrying that line's original number through to every token it emits, and
-dedupes on the text field only (not the whole `<n>\t<token>` line, which
-would defeat dedup since the same token from different lines would no
-longer collide):
-
-```bash
-tokenize_word() { rev_lines "$1" | awk -F'\t' '{ n=$1; text=$2; ntok=split(text, toks, /[ \t]+/); for(i=1;i<=ntok;i++) if(toks[i]!="") print n"\t"toks[i] }' | awk -F'\t' '!seen[$2]++'; }
-tokenize_line() { rev_lines "$1" | awk -F'\t' 'NF>1 && $2!="" && !seen[$2]++'; }
-tokenize_fine() { rev_lines "$1" | awk -F'\t' '{ n=$1; text=$2; while (match(text, /[A-Za-z0-9_]+/)) { print n"\t"substr(text, RSTART, RLENGTH); text = substr(text, RSTART+RLENGTH) } }' | awk -F'\t' '!seen[$2]++'; }
+before=$(( ${FZF_PREVIEW_LINES:-$PREVIEW_CONTEXT_LINES} / 2 ))
 ```
 
-`tokenize_mode`'s dispatch and `tokenize_word`/`tokenize_line`/
-`tokenize_fine`'s `<file>` argument all now take `$tmpdir/numbered`
-instead of `$tmpdir/raw` — `main()` and `cmd_cycle` both switch their
-call sites accordingly. `$tmpdir/raw` (unnumbered) is still needed
-separately, for the preview command's display/highlighting.
+Leave the *after* context as the existing generous constant
+(`PREVIEW_CONTEXT_LINES=25`, unbounded by pane size) — this is what
+preserves the original safety margin ("an early wrong match shouldn't
+hide the right thing"). That concern is about content getting cut off
+*above* the match by how far down the window starts, which is governed
+by the before side only. The after side extending well past the visible
+pane doesn't hide anything — it's simply available via a manual scroll
+down, same as today.
 
-All three modes verified directly against a real fixture during
-brainstorming, confirming: word-mode tokens carry the correct source line
-number; line-mode candidates are the numbered+reversed line as-is (just
-filtered for blanks); fine-mode's extraction loop (`match`/`RSTART`/
-`RLENGTH`) carries the line number through each extracted run; and dedup
-correctly keeps the *most recent* occurrence's line number in all three
-cases (verified with a token that appears on multiple lines — the earlier,
-already-seen duplicate is dropped, leaving only the later line's entry).
+**Verified directly:** extracting a window with `before=13, after=25`
+around a match at line 42 of a 60-line fixture puts the match at relative
+row 14 — i.e. row `before+1`, which for `$FZF_PREVIEW_LINES=27`
+(`before=13`) is exactly the middle of the visible 27 rows.
 
-### Display hides the line-number field
+### Highlighting folds into the same extraction pass
 
-```
---delimiter '\t' --with-nth=2..
-```
-Fuzzy matching and display both operate on the text field only — typing a
-query behaves exactly as before, nothing about the search experience
-changes. **Found while testing:** `--header-lines` also applies
-`--with-nth`'s reformatting to the header line, so `emit_mode` must prefix
-its header line with a dummy leading field too:
-```bash
-emit_mode() {
-	local mode="$1" raw="$2"
-	printf '0\t'
-	header_line "$mode"
-	printf '\n'
-	tokenize_mode "$mode" "$raw"
-}
-```
-(`header_line` itself is unchanged — only the new `printf '0\t'` prefix is
-added in `emit_mode`.)
-
-### Native scroll, auto-centered
-
-```
---preview "grab --preview-context \"$tmpdir/raw\" {1}"
---preview-window "down,60%,+{1}-$offset"
-```
-`{1}` is now the *line number* field (not searched-for text) — `main()`
-already knows it exactly, no runtime search needed. `$offset` is computed
-once in `main()`, before launching fzf, from the actual current tmux pane
-height:
-```bash
-pane_height=$(tmux display-message -p '#{pane_height}')
-offset=$(( (pane_height * 60 / 100 - 3) / 2 ))
-```
-**Verified empirically** (3 data points: pane heights 20/30/50 → measured
-`$FZF_PREVIEW_LINES` 9/15/27 inside a real preview command) that
-`floor(pane_height * 0.6) - 3` matches this repo's fzf/border-style
-`down,60%` layout consistently — the `-3` accounts for border and layout
-overhead specific to this configuration, not a universal fzf constant.
-Halving that gives the offset that lands the match roughly in the vertical
-middle of the pane; confirmed directly in a real tmux session (match line
-appeared at row 9 of a 15-row visible box, ~50%). This replaces
-`PREVIEW_CONTEXT_LINES` entirely — there is no separate "content window"
-constant anymore, since the preview command always shows the *whole*
-`$tmpdir/raw` file; only the initial scroll position is computed.
-
-**Note on staleness:** `$offset` is computed once when `grab` launches (a
-single tmux `display-message` call), not re-queried per keystroke or
-mode-cycle. If the user resizes their terminal while the picker is open,
-centering won't re-adapt until the next `grab` invocation — an accepted,
-rare edge case, not handled specially.
-
-### Highlighting
+`cmd_preview_context` already computes the match's exact line number `n`
+via the existing search (`grep -nFw -- "$needle" "$raw" | tail -1 | cut
+-d: -f1`) — no separate lookup needed for highlighting. Replace the
+`sed -n` extraction with a single `awk` pass that windows and highlights
+together:
 
 ```bash
 cmd_preview_context() {
-	local raw="$1" n="$2"
-	awk -v n="$n" '{ if (NR==n) printf "\033[7m%s\033[0m\n", $0; else print }' "$raw"
+	local raw="$1" needle="$2" n before after start end
+	n=$(grep -nFw -- "$needle" "$raw" | tail -1 | cut -d: -f1) || true
+	if [ -z "$n" ]; then
+		tail -n "$((PREVIEW_CONTEXT_LINES * 2))" "$raw"
+		return
+	fi
+	before=$(( ${FZF_PREVIEW_LINES:-$PREVIEW_CONTEXT_LINES} / 2 ))
+	after=$PREVIEW_CONTEXT_LINES
+	start=$(( n>before ? n-before : 1 ))
+	end=$(( n+after ))
+	awk -v n="$n" -v s="$start" -v e="$end" \
+		'NR>=s && NR<=e { if (NR==n) printf "\033[7m%s\033[0m\n", $0; else print }' "$raw"
 }
 ```
-Reverse-video (`\033[7m`...`\033[0m`) — terminal-default inverted
-colors, adapts to the user's actual color scheme rather than a hardcoded
-color. **Verified fzf's preview pane renders ANSI escape codes natively**,
-with no `--ansi` flag needed (that flag only affects the main candidate
-list, not the preview pane) — confirmed via `tmux capture-pane -e`
-showing the literal `\033[7m` sequence correctly wrapping the target line
-and nothing else.
 
-### `cmd_preview_context`'s argument meaning changes
+Reverse-video (`\033[7m`...`\033[0m`) — terminal-default inverted colors,
+adapts to the user's own color scheme rather than a hardcoded color.
+fzf's preview pane renders ANSI escapes natively (verified earlier this
+session — no `--ansi` flag needed; that flag only affects the main
+candidate list, not the preview pane).
 
-The previous (superseded) design passed the *candidate's text* as the
-second argument and searched for it; this design passes the *line
-number* directly (already known, no search needed) — same dispatch shape
-(`--preview-context <rawfile> <arg>`), same function name, different
-meaning for `<arg>`. `grep -nFw`/`tail -1`/`PREVIEW_CONTEXT_LINES` are all
-removed — no longer needed now that the line number is known exactly
-rather than searched for.
+The no-match fallback (`if [ -z "$n" ]`) keeps its existing `|| true`
+guard on the `grep` call — this was a real bug fixed earlier in this
+project (under `set -e`/`pipefail`, grep's nonzero exit on no-match
+aborted the function before reaching the fallback) and must not regress.
+
+### Everything else is unchanged
+
+No `$tmpdir/numbered` file, no line-number field in tokenizer output, no
+`--delimiter`/`--with-nth`, no header-line dummy-field hack, no
+`--preview-window` offset formula, no `tmux display-message` pane-height
+query in `main()`. `tokenize_word`/`tokenize_line`/`tokenize_fine`,
+`emit_mode`, `cmd_cycle`, and `main()`'s fzf invocation
+(`--preview-window=down,60%`, `--preview "grab --preview-context
+\"$tmpdir/raw\" {}"`) stay exactly as shipped.
 
 ## Files touched
 
-- `~/dotfiles/bin/grab` — restructure `tokenize_word`/`tokenize_line`/
-  `tokenize_fine` (line-number tracking), `emit_mode` (dummy header
-  field), replace `cmd_preview_context` (highlight by line number instead
-  of search), `main()` (create `$tmpdir/numbered`, compute `$offset`,
-  update the fzf invocation's `--delimiter`/`--with-nth`/`--preview`/
-  `--preview-window`), `cmd_cycle` (switch its tokenize call site from
-  `raw` to `numbered`)
+- `~/dotfiles/bin/grab` — replace `cmd_preview_context` only.
 
 ## Verification plan
 
-- Re-run the existing tokenizer tests, adapted for the new `<n>\t<token>`
-  output shape — word/line/fine each carry the correct source line
-  number, dedup keeps the most-recent occurrence's line number.
-- CTRL-G in a pane with enough content to scroll: preview opens already
-  scrolled near the vertical center of the pane, match line visible and
-  reverse-video highlighted, without any manual scrolling.
-- Navigate the candidate list: preview jumps to a new position, still
-  centered, still highlighting the newly-selected candidate's own line —
-  not the previous one.
-- Typing a fuzzy query: candidate list still filters correctly (fuzzy
-  matching is unaffected by `--with-nth` hiding the line-number field).
-- `ctrl-w` mode cycling, `ctrl-y` copy, and Enter-to-insert all still work
-  unaffected — none of them read or write the preview or the line-number
-  field.
-- Header line displays correctly (mode name + keybinding hint), not the
-  literal `0` prefix leaking through.
+- Unit-test `cmd_preview_context` directly against a fixture (no tmux
+  needed): confirm windowing + highlight-row math for a few
+  `$FZF_PREVIEW_LINES` values (matching the empirically-known 9/15/27
+  table), and that the highlighted line is exactly the one at `n`.
+- No-match fallback still behaves (empty `$n` → tail fallback), including
+  under `set -e`/`pipefail` (the `|| true` guard must still be present).
+- CTRL-G in a real tmux pane with enough scrollback: preview opens with
+  the match visible and highlighted, without any manual scroll, roughly
+  centered vertically.
+- Navigate the candidate list: preview re-centers on the newly selected
+  candidate correctly, highlighting only that candidate's own line.
+- `ctrl-w` mode cycling, `ctrl-y` copy, and Enter-to-insert: unaffected
+  (none of them read or write `cmd_preview_context`'s output).
