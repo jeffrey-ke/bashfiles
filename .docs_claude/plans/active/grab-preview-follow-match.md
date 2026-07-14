@@ -417,7 +417,7 @@ tmux send-keys -t previewmatch2 Enter
 sleep 0.5
 tmux capture-pane -p -t previewmatch2
 ```
-Expected: `RESULT:[--flag=value] RC:0` — Enter-to-insert contract unaffected.
+Expected: `RESULT:[running: --flag=value --other=1] RC:0` — **not** `RESULT:[--flag=value]`: this step already sent `ctrl-w`, switching to `line` mode, where whole lines (not word-mode tokens) are the candidates — `flag` fuzzy-matches the whole `running: --flag=value --other=1` line, which is what Enter inserts. This is correct, expected `line`-mode behavior, not a defect (an earlier draft of this plan step had the wrong expected output here — the word-mode value — found and corrected during implementation). The Enter-to-insert contract itself (whatever the highlighted candidate is, Enter inserts it) is what's actually being checked, and it holds.
 
 ```bash
 tmux kill-session -t previewmatch2 2>/dev/null
