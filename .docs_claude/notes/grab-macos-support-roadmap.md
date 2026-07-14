@@ -55,26 +55,45 @@ they don't have. Revisit only if a *different* Mac (without `xclip`
 installed) needs `grab`, or if `xclip`'s XQuartz/Homebrew dependency
 ever becomes inconvenient to maintain.
 
-## 3. Cross-platform install/bootstrap
+## 3. Cross-platform install/bootstrap — CODE DONE, macOS verification OPEN
 
-Three separate issues bundled here since they all block `grab` from ever
-landing on a fresh Mac, independent of `grab`'s own code:
+Shipped: plan/spec at
+[grab-macos-install-bootstrap.md](../plans/active/grab-macos-install-bootstrap.md)
+(deliberately left in `plans/active/`, not moved to `completed/`, until
+the open item below is closed — same pattern as sub-project 1). Two
+tasks, both task-reviewed and whole-branch reviewed (Ready to merge:
+Yes, one Minor cosmetic fix applied post-review):
 
-- `~/.local/bin/grab` symlink is manual/undocumented (same as `art`/`fgr`/
-  `pydef` — `run.sh` and `install-tools.sh` never touch `bin/`). Fix:
-  a loop in `run.sh` that symlinks every executable in `bin/`.
-- `install-tools.sh:26-33` (`install_fzf`) and `:35-49` (`install_yazi`)
-  hardcode `linux_*`/`*-linux-musl*` GitHub release asset patterns.
-  Apple Silicon (`uname -m` = `arm64`, not `aarch64`) falls through to an
-  honest `return 1`. **Intel Mac (`x86_64` matches) is worse: downloads
-  the Linux ELF binary, `command -v fzf` succeeds, script reports "✓
-  installed fzf" — but running it is `cannot execute binary file`.**
-  Needs `darwin_{amd64,arm64}` cases (fzf ships these; yazi doesn't ship
-  a musl-equivalent for macOS since musl is Linux-only — needs a
-  different install path, e.g. brew or the yazi macOS release asset).
-- `run.sh:26` — `sed -i '/MACHINE_CONFIG/d'` is GNU-only syntax; BSD sed
-  (macOS) requires `sed -i ''` (empty string arg for no backup suffix).
-  `run.sh` itself would error partway through on a fresh Mac.
+- `run.sh` now symlinks `bin/`'s user commands (`art`, `commentstrip`,
+  `fgr`, `grab`, `pydef`, `run` — extensionless executables only, verified
+  against a fixture mirroring the real directory) into `~/.local/bin`,
+  and fixes the GNU-only `sed -i '/MACHINE_CONFIG/d'` line (BSD sed
+  requires an explicit suffix argument) to the portable `sed -i.bak
+  '...' file && rm file.bak` form — verified on GNU sed, not on real BSD
+  sed (no Mac available).
+- `install-tools.sh`'s `install_fzf`/`install_yazi` now branch on
+  `uname -s = Darwin` and shell out to `brew install <tool>` instead of
+  the (broken-on-macOS) GitHub-release-download path — chosen over
+  replicating the download approach with Darwin asset URLs after finding
+  yazi's Apple-Silicon asset name (`aarch64`) doesn't match macOS's own
+  `uname -m` output (`arm64`), an extra footgun Homebrew's own platform
+  detection avoids. Existing Linux paths and `install_zoxide` are
+  provably byte-for-byte unchanged. The install loop's success check now
+  requires `"$tool" --version` to actually succeed, not just `command -v`
+  — directly closes the Intel-Mac false-success bug (downloads a Linux
+  binary, reports "✓ installed", binary can't execute) generally, not
+  just for this one case.
+
+Every mechanism was proven with real mock/fixture tests on this Linux
+machine during brainstorming and again during implementation (fake
+`uname`/`brew`, a broken-binary fixture, a `bin/`-mirroring fixture) —
+not just asserted.
+
+**Still open: no Mac available in this session to actually run `run.sh`
+on macOS.** Move this plan to `completed/` and update `PLANS_TOC.md` only
+once someone runs it on `jeffpro` (or another Mac) and confirms the
+symlinks land, `sed -i.bak` doesn't error, and `brew install fzf`/`brew
+install yazi` actually succeed.
 
 ## 4. CTRL-G on bash 3.2 (corrected scope — not zsh)
 
