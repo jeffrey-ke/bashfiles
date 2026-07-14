@@ -22,6 +22,11 @@ install_zoxide() {
 }
 
 install_fzf() {
+	if [ "$(uname -s)" = "Darwin" ]; then
+		command -v brew >/dev/null 2>&1 || return 1
+		brew install fzf
+		return
+	fi
 	local arch url
 	case "$(uname -m)" in
 		x86_64) arch=amd64 ;;
@@ -34,6 +39,11 @@ install_fzf() {
 }
 
 install_yazi() {
+	if [ "$(uname -s)" = "Darwin" ]; then
+		command -v brew >/dev/null 2>&1 || return 1
+		brew install yazi
+		return
+	fi
 	# musl build: static, no glibc-version headaches on older machines
 	local arch url bin
 	case "$(uname -m)" in
@@ -54,18 +64,20 @@ install_yazi() {
 	[ -x "$BIN/yazi" ]
 }
 
-for tool in zoxide fzf yazi; do
-	if command -v "$tool" >/dev/null 2>&1; then
-		echo "✓ $tool already installed ($("$tool" --version 2>/dev/null | head -1))"
-	elif "install_$tool" >/dev/null 2>&1 && command -v "$tool" >/dev/null 2>&1; then
-		echo "✓ installed $tool -> $BIN"
-	else
-		echo "✗ $tool install failed — re-run ./install-tools.sh later" >&2
+if [ "${BASH_SOURCE[0]}" = "$0" ]; then
+	for tool in zoxide fzf yazi; do
+		if command -v "$tool" >/dev/null 2>&1 && "$tool" --version >/dev/null 2>&1; then
+			echo "✓ $tool already installed ($("$tool" --version 2>/dev/null | head -1))"
+		elif "install_$tool" >/dev/null 2>&1 && command -v "$tool" >/dev/null 2>&1 && "$tool" --version >/dev/null 2>&1; then
+			echo "✓ installed $tool -> $BIN"
+		else
+			echo "✗ $tool install failed — re-run ./install-tools.sh later" >&2
+		fi
+	done
+
+	if command -v ya >/dev/null 2>&1 && [ -f "$HOME/.config/yazi/package.toml" ]; then
+		ya pkg install >/dev/null 2>&1 && echo "✓ yazi plugins installed" || echo "✗ yazi plugin install failed — re-run 'ya pkg install' later" >&2
 	fi
-done
 
-if command -v ya >/dev/null 2>&1 && [ -f "$HOME/.config/yazi/package.toml" ]; then
-	ya pkg install >/dev/null 2>&1 && echo "✓ yazi plugins installed" || echo "✗ yazi plugin install failed — re-run 'ya pkg install' later" >&2
+	exit 0
 fi
-
-exit 0
