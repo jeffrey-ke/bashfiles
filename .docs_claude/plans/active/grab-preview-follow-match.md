@@ -46,15 +46,16 @@ grab --preview-context <rawfile> <candidate-text>
 ```
 
 ```bash
+PREVIEW_CONTEXT_LINES=25
+
 cmd_preview_context() {
-	local raw="$1" needle="$2" n half
+	local raw="$1" needle="$2" n
 	n=$(grep -nFw -- "$needle" "$raw" | tail -1 | cut -d: -f1)
 	if [ -z "$n" ]; then
-		tail -n "${FZF_PREVIEW_LINES:-20}" "$raw"
+		tail -n "$((PREVIEW_CONTEXT_LINES * 2))" "$raw"
 		return
 	fi
-	half=$(( ${FZF_PREVIEW_LINES:-20} / 2 ))
-	sed -n "$(( n>half ? n-half : 1 )),$(( n+half ))p" "$raw"
+	sed -n "$(( n>PREVIEW_CONTEXT_LINES ? n-PREVIEW_CONTEXT_LINES : 1 )),$(( n+PREVIEW_CONTEXT_LINES ))p" "$raw"
 }
 ```
 
@@ -72,16 +73,41 @@ cmd_preview_context() {
   token is always the highest original line number) — the line shown is
   always the same occurrence the candidate was deduped from, not an
   arbitrary earlier one.
-- **`$FZF_PREVIEW_LINES`** — fzf exports the actual current preview pane
-  height to preview commands (verified: `15` on a 30-row terminal at
-  `down,60%`). Halved above/below the match so the window roughly fills
-  whatever the pane's actual size is, not a hardcoded guess, and the
-  match lands roughly centered.
+- **`PREVIEW_CONTEXT_LINES=25`** (revised after brainstorming — see
+  below) — a plain tunable constant (same pattern as the existing
+  `SCROLLBACK_LINES=2000`), *not* derived from `$FZF_PREVIEW_LINES`/pane
+  height. Symmetric: `PREVIEW_CONTEXT_LINES` lines before and after the
+  match. Explicitly a starting point for empirical tuning during real
+  use, not a precisely-optimized number.
 - **Fallback (match not found — shouldn't happen by construction, since
   every candidate is extracted from `raw` itself, but kept defensive):**
-  show the last `$FZF_PREVIEW_LINES` lines — keeps the "most recent"
-  bias from the prior sub-project rather than reverting to the top of
-  the file.
+  show the last `PREVIEW_CONTEXT_LINES * 2` lines — keeps the "most
+  recent" bias from the prior sub-project rather than reverting to the
+  top of the file.
+
+**Context-window sizing (revised after brainstorming):** the original
+draft derived the window size from `$FZF_PREVIEW_LINES` (the actual
+pane height) so the content exactly filled the pane with no scrolling
+needed. Revisited after the user raised a real concern: if the search
+lands on a slightly-wrong occurrence (the accepted residual risk from
+`grep -Fw`'s substring-collision mitigation), a window sized to exactly
+fill the pane has no margin — you see nothing beyond that tight
+snippet. Considered three options, tested against realistic multi-section
+content:
+- **Exactly-pane-fitting (original):** no margin.
+- **Symmetric, generous, decoupled from pane height:** more buffer
+  either direction, but — found while testing — since fzf always starts
+  rendering a preview command's output from line 1, a symmetric window
+  bigger than the pane pushes the match itself below the initially
+  visible area; you'd need to scroll down partway to even see it.
+- **Asymmetric (small lead-in, generous trailing buffer):** keeps the
+  match immediately visible at the top while still providing a large
+  safety margin — but only in one direction.
+
+User's call: **symmetric and generous**, explicitly accepting that the
+match won't be immediately visible at the very top of the pane and an
+initial scroll may be needed to center on it, in exchange for equal
+context both before and after.
 
 ### Changes to `main()`
 
@@ -137,7 +163,11 @@ most recent line anyway.
   substring false-match (spot check, not exhaustive — the residual risk
   for genuinely ambiguous short tokens is accepted, not fully eliminated).
 - No-match fallback (contrived test input where the searched text isn't
-  found): shows the last `$FZF_PREVIEW_LINES` lines rather than erroring.
+  found): shows the last `PREVIEW_CONTEXT_LINES * 2` lines rather than
+  erroring.
+- Symmetric generous window: confirm the shown range extends
+  `PREVIEW_CONTEXT_LINES` before *and* after the match (not just
+  filling whatever the pane happens to show).
 
 ---
 
