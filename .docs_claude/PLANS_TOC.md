@@ -32,6 +32,7 @@ When a plan is added, copied, moved, renamed, or deleted:
 
 ## Chronological index
 
+- **2026-07-13** — [grab-preview-follow-match.md](plans/completed/grab-preview-follow-match.md) `bin/grab`
 - **2026-07-13** — [grab-preview-follow-scroll.md](plans/completed/grab-preview-follow-scroll.md) `bin/grab`
 - **2026-07-13** — [grab-preview-window.md](plans/completed/grab-preview-window.md) `bin/grab`
 - **2026-07-13** — [grab-screen-word-completion.md](plans/completed/grab-screen-word-completion.md) `bin/grab`, `.bash_tools`
@@ -335,6 +336,31 @@ When a plan is added, copied, moved, renamed, or deleted:
 >
 > **Key changes:**
 > - `~ bin/grab` — `main()`'s `--preview-window` value gains `,follow`
+
+### [grab-preview-follow-match.md](plans/completed/grab-preview-follow-match.md)
+`~/dotfiles/bin/grab` · 2026-07-13
+> Supersedes grab-preview-follow-scroll.md's `,follow`-to-bottom behavior:
+> the preview now jumps to and shows context around wherever the
+> highlighted candidate's text actually appears in the captured screen,
+> found via a word-boundary fixed-string search (`grep -nFw`) at render
+> time rather than tracking position structurally in the tokenizers (a
+> position-tagged alternative was designed and proven working, then
+> rejected as more invasive). Went through a mid-brainstorm design
+> revision: the context window was originally sized to exactly fill the
+> preview pane (`$FZF_PREVIEW_LINES`-derived), but the user wanted margin
+> against an imprecise match, so it's now a plain symmetric constant
+> (`PREVIEW_CONTEXT_LINES=25`, same pattern as `SCROLLBACK_LINES`),
+> accepting that the match may need an initial scroll to center rather
+> than always being at the very top of the pane. The final whole-branch
+> review caught a real bug the task-level tests missed: the no-match
+> fallback was dead under the file's own `set -euo pipefail` (a `grep`
+> miss's nonzero exit, propagated by `pipefail`, aborted before reaching
+> the fallback branch) — masked because the unit tests `source` the file
+> and never trigger the run-as-script guard where `set -e` actually
+> lives. Fixed with `|| true`, verified directly against the real binary.
+>
+> **Key changes:**
+> - `~ bin/grab` — adds `PREVIEW_CONTEXT_LINES=25` and `cmd_preview_context()` (word-boundary search + symmetric context window + no-match fallback), wires it into the CLI dispatch as `--preview-context` and into `main()`'s `--preview`/`--preview-window` (drops `,follow`)
 
 ## 6. Shell: Git Helpers
 
