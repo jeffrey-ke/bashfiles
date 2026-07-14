@@ -15,6 +15,13 @@ ln -sf "$DOTFILES/nvim" "$HOME/.config/nvim"
 [ -d "$HOME/.config/yazi" ] && [ ! -L "$HOME/.config/yazi" ] && rm -rf "$HOME/.config/yazi"
 ln -sf "$DOTFILES/yazi" "$HOME/.config/yazi"
 
+mkdir -p "$HOME/.local/bin"
+for f in "$DOTFILES"/bin/*; do
+	[ -f "$f" ] && [ -x "$f" ] || continue
+	case "$(basename "$f")" in *.*) continue ;; esac
+	ln -sf "$f" "$HOME/.local/bin/$(basename "$f")"
+done
+
 sources=(.bash_aliases .functions.sh .bash_prompt .bash_tools)
 for s in "${sources[@]}"; do
 	if ! grep -q "source.*$s" "$BASHRC"; then
@@ -23,7 +30,7 @@ for s in "${sources[@]}"; do
 done
 
 # Migrate the old inline machine-config block (exact-hostname only) if present.
-sed -i '/MACHINE_CONFIG/d' "$BASHRC"
+sed -i.bak '/MACHINE_CONFIG/d' "$BASHRC" && rm -f "$BASHRC.bak"
 if ! grep -q 'source-machine.sh' "$BASHRC"; then
 	echo '[ -f "$HOME/dotfiles/source-machine.sh" ] && source "$HOME/dotfiles/source-machine.sh"' >>"$BASHRC"
 fi
