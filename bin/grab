@@ -62,7 +62,7 @@ PREVIEW_CONTEXT_LINES=25
 
 cmd_preview_context() {
 	local raw="$1" needle="$2" n
-	n=$(grep -nFw -- "$needle" "$raw" | tail -1 | cut -d: -f1)
+	n=$(grep -nFw -- "$needle" "$raw" | tail -1 | cut -d: -f1) || true
 	if [ -z "$n" ]; then
 		tail -n "$((PREVIEW_CONTEXT_LINES * 2))" "$raw"
 		return
