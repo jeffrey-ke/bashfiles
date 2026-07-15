@@ -1,0 +1,30 @@
+#!/usr/bin/env bash
+# grep2qf — turn `grep -n` output into quickfix `file:line:text` lines.
+#
+# Lines already shaped `file:line:text` (grep -n over multiple files, or -r)
+# pass through unchanged. Bare `line:text` lines (grep -n over a single file,
+# which omits the filename) get $1 prepended. Anything else is dropped.
+#
+# Usage:
+#   grep -n pattern file.py | grep2qf file.py | nvim -q /dev/stdin
+#   grep -rn pattern src/   | grep2qf         | nvim -q /dev/stdin
+#
+# Note: grep -H forces the filename even for a single file, which already
+# gives quickfix-compatible `file:line:text` — often you don't need this
+# script at all, just `grep -Hn pattern file | nvim -q /dev/stdin`.
+
+filename="$1"
+warned=0
+
+while IFS= read -r line; do
+    if [[ "$line" =~ ^[^:]+:[0-9]+: ]]; then
+        printf '%s\n' "$line"
+    elif [[ "$line" =~ ^[0-9]+: ]]; then
+        if [[ -n "$filename" ]]; then
+            printf '%s:%s\n' "$filename" "$line"
+        elif [[ "$warned" -eq 0 ]]; then
+            echo "grep2qf: bare 'line:text' input needs a filename argument, skipping (or just add -H to your grep)" >&2
+            warned=1
+        fi
+    fi
+done

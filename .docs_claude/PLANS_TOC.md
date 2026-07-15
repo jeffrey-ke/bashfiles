@@ -32,6 +32,7 @@ When a plan is added, copied, moved, renamed, or deleted:
 
 ## Chronological index
 
+- **2026-07-15** — [grep2qf-grep-to-quickfix.md](plans/completed/grep2qf-grep-to-quickfix.md) `bin/grep2qf`
 - **2026-07-13** — [grab-preview-follow-match.md](plans/completed/grab-preview-follow-match.md) `bin/grab`
 - **2026-07-13** — [grab-preview-follow-scroll.md](plans/completed/grab-preview-follow-scroll.md) `bin/grab`
 - **2026-07-13** — [grab-preview-window.md](plans/completed/grab-preview-window.md) `bin/grab`
@@ -171,6 +172,24 @@ When a plan is added, copied, moved, renamed, or deleted:
 > **Key changes:**
 > - `~ .functions.sh` — `ugq()` rewritten: `ug -Q -Z -n -k -H --no-heading --no-initial-tab [-e PAT]` → sed SGR-strip → `nvim -q <(...) -c cwindow`
 > - no-selection fallback: quitting a *seeded* `ugq PAT` without selecting batch re-runs PAT and quickfixes ALL matches (live-typed patterns aren't recoverable — TUI history is in-memory only)
+
+### [grep2qf-grep-to-quickfix.md](plans/completed/grep2qf-grep-to-quickfix.md)
+`~/dotfiles/bin/grep2qf` · 2026-07-15
+> `grep2qf`: filter that patches the filename back into bare `grep -n` output
+> (omitted when searching a single file) so it becomes `file:line:text`,
+> nvim's default quickfix errorformat, for `grep -n ... | grep2qf <file> |
+> nvim -q /dev/stdin`. Lines already shaped `file:line:text` (multi-file/`-r`
+> grep) pass through unchanged; junk (blank lines, non-matching prose) is
+> dropped. Investigated afterward whether grep/rg already do this: ripgrep's
+> `--vimgrep` is a dedicated `file:line:col:text` mode built for exactly this;
+> plain `grep -Hn` also already forces the filename on a single file with zero
+> conversion needed — so `grep2qf`'s filename-argument fallback is mainly for
+> grep output that already happened without `-H` (e.g. pasted from a
+> scrollback), and its warning message says so.
+>
+> **Key changes:**
+> - `+ bin/grep2qf` — bare-`line:text` → `file:line:text` filter
+> - `+ ~/.local/bin/grep2qf` (symlink)
 
 ## 3. Tmux: Popups & Notifications
 
@@ -361,6 +380,24 @@ When a plan is added, copied, moved, renamed, or deleted:
 >
 > **Key changes:**
 > - `~ bin/grab` — adds `PREVIEW_CONTEXT_LINES=25` and `cmd_preview_context()` (word-boundary search + symmetric context window + no-match fallback), wires it into the CLI dispatch as `--preview-context` and into `main()`'s `--preview`/`--preview-window` (drops `,follow`)
+
+### [grep2qf-grep-to-quickfix.md](plans/completed/grep2qf-grep-to-quickfix.md)
+`~/dotfiles/bin/grep2qf` · 2026-07-15
+> `grep2qf`: filter that patches the filename back into bare `grep -n` output
+> (omitted when searching a single file) so it becomes `file:line:text`,
+> nvim's default quickfix errorformat, for `grep -n ... | grep2qf <file> |
+> nvim -q /dev/stdin`. Lines already shaped `file:line:text` (multi-file/`-r`
+> grep) pass through unchanged; junk (blank lines, non-matching prose) is
+> dropped. Investigated afterward whether grep/rg already do this: ripgrep's
+> `--vimgrep` is a dedicated `file:line:col:text` mode built for exactly this;
+> plain `grep -Hn` also already forces the filename on a single file with zero
+> conversion needed — so `grep2qf`'s filename-argument fallback is mainly for
+> grep output that already happened without `-H` (e.g. pasted from a
+> scrollback), and its warning message says so.
+>
+> **Key changes:**
+> - `+ bin/grep2qf` — bare-`line:text` → `file:line:text` filter
+> - `+ ~/.local/bin/grep2qf` (symlink)
 
 ## 6. Shell: Git Helpers
 
