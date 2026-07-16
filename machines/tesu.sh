@@ -31,7 +31,6 @@ export PATH=$HOME/isaacsim:$PATH
 # 	return 0
 # }
 alias fresh="source ~/.bashrc"
-alias fvim="nvim \$(fzf)"
 
 # >>> path registry >>>
 export mpdata='/data/user/jeffk/datasets/mixed-persp'
@@ -46,4 +45,6 @@ export data='/data/user/jeffk'
 export sbp='/data/user/jeffk/seg_benchmark_predictions'
 export runs='/home/jeffk/repo/refseg-workspace/segmentation/runs'
 export rback='/data/user/jeffk/random_backgrounds'
+export segruns='/data/user/jeffk/segmentation_runs'
+export n10n='/data/user/jeffk/n-10n'
 # <<< path registry <<<

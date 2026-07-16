@@ -32,6 +32,8 @@ When a plan is added, copied, moved, renamed, or deleted:
 
 ## Chronological index
 
+- **2026-07-15** — [fzf-ctrl-t-directory-navigation.md](plans/completed/fzf-ctrl-t-directory-navigation.md) `.bash_tools`
+- **2026-07-15** — [fvim-alias-function-collision-fix.md](plans/completed/fvim-alias-function-collision-fix.md) `machines/tesu.sh`
 - **2026-07-15** — [grep2qf-grep-to-quickfix.md](plans/completed/grep2qf-grep-to-quickfix.md) `bin/grep2qf`
 - **2026-07-13** — [grab-preview-follow-match.md](plans/completed/grab-preview-follow-match.md) `bin/grab`
 - **2026-07-13** — [grab-preview-follow-scroll.md](plans/completed/grab-preview-follow-scroll.md) `bin/grab`
@@ -235,6 +237,34 @@ When a plan is added, copied, moved, renamed, or deleted:
 > - _planned, not shipped:_ `CCEXPLAIN` `PROMPT_COMMAND` marker in `run.sh`/`.bashrc`
 
 ## 4. Shell: Navigation & Machine Config
+
+### [fzf-ctrl-t-directory-navigation.md](plans/completed/fzf-ctrl-t-directory-navigation.md)
+`~/dotfiles/.bash_tools` · 2026-07-15
+> Adds yazi-style in-picker navigation to fzf's Ctrl-T file finder: Ctrl-H up a
+> directory, Ctrl-L descend into the highlighted directory, Ctrl-D jump back to the
+> origin — all via fzf 0.70's `become` action (execve-replaces the fzf process after
+> `cd`, so hops are real cwd changes and compose across repeated presses). Also rebases
+> every inserted selection onto the origin directory regardless of how far the picker
+> wandered, using a temp-file side channel since the `become` chain runs in a subshell
+> and can't otherwise report its final cwd back out. Found and worked around a real fzf
+> 0.70 bug: `transform` actions silently stop firing on any process reached via
+> `become` (`execute-silent`/`become` itself are unaffected) — Ctrl-L moved the
+> directory check inside the target function instead of gating with `transform` first.
+>
+> **Key changes:**
+> - `~ .bash_tools` — `_fzf_ctrl_t_relaunch`/`_fzf_ctrl_t_up`/`_fzf_ctrl_t_down`/`_fzf_ctrl_t_origin`, `FZF_CTRL_T_OPTS` binds, `_fzf_ctrl_t_widget` (replaces the default Ctrl-T binding) with `realpath --relative-to` rebasing
+
+### [fvim-alias-function-collision-fix.md](plans/completed/fvim-alias-function-collision-fix.md)
+`~/dotfiles/machines/tesu.sh` · 2026-07-15
+> Fixes `fvim` being defined twice (alias in `machines/tesu.sh`, function in
+> `.functions.sh`) — bash resolves aliases before functions, so the alias silently won
+> on every fresh shell (the function was dead code), and re-sourcing `.bashrc` in an
+> already-running shell hit a `syntax error near unexpected token '('` trying to
+> redefine the function over the still-active alias. Found incidentally while testing
+> fzf-ctrl-t-directory-navigation.md above.
+>
+> **Key changes:**
+> - `~ machines/tesu.sh` — removed the shadowing `alias fvim`
 
 ### [machine-specific-path-registry.md](plans/completed/machine-specific-path-registry.md)
 `~/dotfiles/.functions.sh` · 2026-06-17

@@ -9,6 +9,86 @@ command -v zoxide >/dev/null 2>&1 && eval "$(zoxide init --cmd cd bash)"
 if command -v fzf >/dev/null 2>&1; then
 	eval "$(fzf --bash)"
 	export FZF_COMPLETION_TRIGGER='~~'
+
+	# Ctrl-T finder directory navigation (yazi-style hjkl mnemonics):
+	#   Ctrl-H   up to the parent directory (repeatable)
+	#   Ctrl-L   descend into the highlighted directory (no-op on files)
+	#   Ctrl-D   jump back to the directory Ctrl-T was originally opened in
+	# `become` replaces the fzf process via execve after `cd`, so the new
+	# process's cwd genuinely changes — hops compose correctly across presses.
+	# Overrides fzf's default ctrl-h (backspace; the physical Backspace key is
+	# unaffected, it sends a separate 'bspace' code), ctrl-l (clear-screen),
+	# and ctrl-d (delete char / abort-if-empty-query); use Ctrl-C to
+	# abort/restart the query instead.
+	# Ctrl-L always becomes (rather than using a `transform` to check first)
+	# because fzf's `transform` action silently stops firing on any process
+	# reached via `become` — confirmed empirically against fzf 0.70; `become`
+	# and `execute-silent` are unaffected. So the directory check happens
+	# inside the function instead: not-a-directory is a harmless no-op relaunch.
+	# Each relaunch stamps its cwd into _FZF_CTRL_T_CWDFILE. Env vars set
+	# inside the become chain can't propagate back to the widget below (the
+	# chain runs in a subshell), so this file is the only channel back out —
+	# it's how the widget learns which directory the final accept happened
+	# in, to rebase the selection onto the origin dir.
+	_fzf_ctrl_t_relaunch() {
+		[ -n "${_FZF_CTRL_T_CWDFILE:-}" ] && printf '%s' "$PWD" >"$_FZF_CTRL_T_CWDFILE"
+		FZF_DEFAULT_COMMAND=${FZF_CTRL_T_COMMAND:-} \
+			FZF_DEFAULT_OPTS="--reverse --walker=file,dir,follow,hidden --scheme=path ${FZF_CTRL_T_OPTS:-} -m" \
+			FZF_DEFAULT_OPTS_FILE='' fzf
+	}
+	export -f _fzf_ctrl_t_relaunch
+	_fzf_ctrl_t_up() {
+		cd .. 2>/dev/null || return
+		_fzf_ctrl_t_relaunch
+	}
+	export -f _fzf_ctrl_t_up
+	_fzf_ctrl_t_down() {
+		[ -d "$1" ] && cd -- "$1" 2>/dev/null
+		_fzf_ctrl_t_relaunch
+	}
+	export -f _fzf_ctrl_t_down
+	_fzf_ctrl_t_origin() {
+		cd -- "${_FZF_CTRL_T_ORIGIN:-.}" 2>/dev/null || return
+		_fzf_ctrl_t_relaunch
+	}
+	export -f _fzf_ctrl_t_origin
+	export FZF_CTRL_T_OPTS='--bind "ctrl-h:become(_fzf_ctrl_t_up),ctrl-d:become(_fzf_ctrl_t_origin),ctrl-l:become(_fzf_ctrl_t_down {})"'
+
+	# fzf's own Ctrl-T widget doesn't remember where it started, so wrap it to
+	# stamp the origin dir first; _fzf_ctrl_t_origin above reads it back.
+	# It also reimplements fzf-file-widget's body instead of just calling it,
+	# so the raw selection (relative to wherever the picker ended up after
+	# any Ctrl-H/L hops) can be rebased onto the origin dir before insertion —
+	# paths inserted into the command line are always relative to where
+	# Ctrl-T was pressed, regardless of how far the picker wandered.
+	_fzf_ctrl_t_widget() {
+		local origin="$PWD" cwdfile selected final_cwd raw tok rebased=()
+		export _FZF_CTRL_T_ORIGIN="$origin"
+		cwdfile="$(mktemp -t fzf-ctrl-t-cwd.XXXXXX)"
+		printf '%s' "$origin" >"$cwdfile"
+		export _FZF_CTRL_T_CWDFILE="$cwdfile"
+
+		selected="$(__fzf_select__)"
+		final_cwd="$(command cat -- "$cwdfile" 2>/dev/null)"
+		rm -f -- "$cwdfile"
+
+		if [ -n "$selected" ] && [ -n "$final_cwd" ] && [ "$final_cwd" != "$origin" ]; then
+			eval "raw=($selected)"
+			for tok in "${raw[@]}"; do
+				rebased+=("$(realpath --relative-to="$origin" -- "$final_cwd/$tok" 2>/dev/null || printf '%s' "$tok")")
+			done
+			selected=""
+			for tok in "${rebased[@]}"; do
+				selected+="$(printf '%q ' "$tok")"
+			done
+		fi
+
+		READLINE_LINE="${READLINE_LINE:0:READLINE_POINT}$selected${READLINE_LINE:READLINE_POINT}"
+		READLINE_POINT=$((READLINE_POINT + ${#selected}))
+	}
+	bind -m emacs-standard -x '"\C-t": _fzf_ctrl_t_widget'
+	bind -m vi-command -x '"\C-t": _fzf_ctrl_t_widget'
+	bind -m vi-insert -x '"\C-t": _fzf_ctrl_t_widget'
 fi
 
 if command -v grab >/dev/null 2>&1; then
