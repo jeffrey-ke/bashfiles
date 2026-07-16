@@ -33,7 +33,7 @@ if command -v fzf >/dev/null 2>&1; then
 	_fzf_ctrl_t_relaunch() {
 		[ -n "${_FZF_CTRL_T_CWDFILE:-}" ] && printf '%s' "$PWD" >"$_FZF_CTRL_T_CWDFILE"
 		FZF_DEFAULT_COMMAND=${FZF_CTRL_T_COMMAND:-} \
-			FZF_DEFAULT_OPTS="--reverse --walker=file,dir,follow,hidden --scheme=path ${FZF_CTRL_T_OPTS:-} -m" \
+			FZF_DEFAULT_OPTS="--reverse --walker=file,dir,follow,hidden --scheme=path --header=\"$PWD\" ${FZF_CTRL_T_OPTS:-} -m" \
 			FZF_DEFAULT_OPTS_FILE='' fzf
 	}
 	export -f _fzf_ctrl_t_relaunch
@@ -61,6 +61,11 @@ if command -v fzf >/dev/null 2>&1; then
 	# any Ctrl-H/L hops) can be rebased onto the origin dir before insertion —
 	# paths inserted into the command line are always relative to where
 	# Ctrl-T was pressed, regardless of how far the picker wandered.
+	# Uses _fzf_ctrl_t_relaunch (not fzf's own __fzf_select__) for the initial
+	# launch too, so the header and binds are consistent from the first press
+	# — __fzf_select__ builds its own FZF_DEFAULT_OPTS via fzf's __fzf_defaults
+	# and knows nothing about them, otherwise the header only appears starting
+	# from the first Ctrl-H/L/D hop.
 	_fzf_ctrl_t_widget() {
 		local origin="$PWD" cwdfile selected final_cwd raw tok rebased=()
 		export _FZF_CTRL_T_ORIGIN="$origin"
@@ -68,7 +73,7 @@ if command -v fzf >/dev/null 2>&1; then
 		printf '%s' "$origin" >"$cwdfile"
 		export _FZF_CTRL_T_CWDFILE="$cwdfile"
 
-		selected="$(__fzf_select__)"
+		selected="$(_fzf_ctrl_t_relaunch | while read -r item; do printf '%q ' "$item"; done)"
 		final_cwd="$(command cat -- "$cwdfile" 2>/dev/null)"
 		rm -f -- "$cwdfile"
 

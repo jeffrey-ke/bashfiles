@@ -11,9 +11,10 @@ a real process-level cwd change, not a cosmetic re-listing, so repeated presses 
 correctly across multiple hops.
 
 The scope grew through the conversation into a small yazi-style in-picker file browser:
-up a level, descend into a highlighted directory, jump back to the origin, and — the final
-ask — always insert the selected path relative to wherever Ctrl-T was originally pressed,
-regardless of how far the picker wandered.
+up a level, descend into a highlighted directory, jump back to the origin, always insert
+the selected path relative to wherever Ctrl-T was originally pressed regardless of how
+far the picker wandered, and finally display the current directory in the picker itself
+so the wandering is actually visible.
 
 ## Approach
 
@@ -47,6 +48,11 @@ reads it back, and rebases the raw selection (relative to that final cwd) onto t
 dir with `realpath --relative-to`, re-escaping with `%q` before insertion (handles
 multi-select and filenames with spaces correctly — see Verification).
 
+Current-directory display (the final ask): `_fzf_ctrl_t_relaunch` passes
+`--header="$PWD"` on every launch, so the header always reflects whichever directory
+that particular fzf instance is rooted in — no dynamic update mechanism needed, since
+every hop is already a fresh fzf process by construction.
+
 ## What didn't work, and why
 
 ### `transform` silently stops firing on any process reached via `become`
@@ -68,6 +74,22 @@ Fixed by dropping `transform` entirely: Ctrl-L always `become`s
 (`ctrl-l:become(_fzf_ctrl_t_down {})`), and the directory check moved inside
 `_fzf_ctrl_t_down` itself (`[ -d "$1" ] && cd -- "$1"`) — not-a-directory is a harmless
 no-op relaunch in place, no conditional dispatch needed before the become fires.
+
+### `__fzf_select__` doesn't know about `_fzf_ctrl_t_relaunch`'s custom options
+
+First cut of the header only added `--header="$PWD"` inside `_fzf_ctrl_t_relaunch`,
+reasoning that every fzf launch — initial and every hop — goes through it. False: the
+*initial* Ctrl-T launch was still going through fzf's own `__fzf_select__` (called
+directly from `_fzf_ctrl_t_widget`), which builds its own `FZF_DEFAULT_OPTS` via fzf's
+`__fzf_defaults` helper and has no knowledge of anything `_fzf_ctrl_t_relaunch` does. The
+header was silently invisible until the first Ctrl-H/L/D hop, which *does* go through
+`_fzf_ctrl_t_relaunch`. Caught with a scripted pty test that set a real terminal window
+size (`ioctl(TIOCSWINSZ)`) and checked the rendered screen for the path string right
+after the bare Ctrl-T press, before any hop. Fixed by having `_fzf_ctrl_t_widget` call
+`_fzf_ctrl_t_relaunch` for the initial launch too, wrapped in the same `%q`-escaping
+pipe `__fzf_select__` itself uses (`| while read -r item; do printf '%q ' "$item"; done`)
+— so escaping is still applied exactly once, at the outermost layer, for both the
+initial launch and every subsequent hop.
 
 ### Key binding overrides and their tradeoffs
 
@@ -109,3 +131,6 @@ inserted command-line text:
   space-containing filename round-tripped correctly (`../sibling/has\ space.txt`).
 - Regression: `source ~/.bashrc` twice in the same session (picking up config changes
   without a new terminal) produces no syntax errors after these changes.
+- Header: with a real pty window size set, the current directory is visible in the
+  rendered screen immediately after the bare Ctrl-T press (not just after the first
+  hop), and updates correctly on each subsequent Ctrl-H/L hop.

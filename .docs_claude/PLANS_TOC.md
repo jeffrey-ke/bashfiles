@@ -246,10 +246,14 @@ When a plan is added, copied, moved, renamed, or deleted:
 > `cd`, so hops are real cwd changes and compose across repeated presses). Also rebases
 > every inserted selection onto the origin directory regardless of how far the picker
 > wandered, using a temp-file side channel since the `become` chain runs in a subshell
-> and can't otherwise report its final cwd back out. Found and worked around a real fzf
-> 0.70 bug: `transform` actions silently stop firing on any process reached via
-> `become` (`execute-silent`/`become` itself are unaffected) — Ctrl-L moved the
-> directory check inside the target function instead of gating with `transform` first.
+> and can't otherwise report its final cwd back out. Shows the current directory as a
+> live `--header` on every relaunch. Found and worked around two real fzf 0.70 quirks:
+> `transform` actions silently stop firing on any process reached via `become`
+> (`execute-silent`/`become` itself are unaffected) — Ctrl-L moved the directory check
+> inside the target function instead of gating with `transform` first; and fzf's own
+> `__fzf_select__` builds its own options and knows nothing about custom ones, so the
+> initial Ctrl-T launch had to be rerouted through the same relaunch function as every
+> hop for the header to appear from the first press.
 >
 > **Key changes:**
 > - `~ .bash_tools` — `_fzf_ctrl_t_relaunch`/`_fzf_ctrl_t_up`/`_fzf_ctrl_t_down`/`_fzf_ctrl_t_origin`, `FZF_CTRL_T_OPTS` binds, `_fzf_ctrl_t_widget` (replaces the default Ctrl-T binding) with `realpath --relative-to` rebasing
