@@ -47,4 +47,6 @@ export runs='/home/jeffk/repo/refseg-workspace/segmentation/runs'
 export rback='/data/user/jeffk/random_backgrounds'
 export segruns='/data/user/jeffk/segmentation_runs'
 export n10n='/data/user/jeffk/n-10n'
+export n10nfullstore='/data/user/jeffk/n-10n/3-30/full-store-only'
+export jlgsf='/data/user/jeffk/n-10n/jittered-log-scaled-flat-fixed'
 # <<< path registry <<<
