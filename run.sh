@@ -4,7 +4,7 @@ set -e
 DOTFILES="$HOME/dotfiles"
 BASHRC="$HOME/.bashrc"
 
-files=(.bash_aliases .functions.sh .bash_prompt .bash_tools .pylintrc .tmux.conf .vimrc .gitconfig)
+files=(.bash_aliases .functions.sh .bash_prompt .bash_tools .bash_vars .pylintrc .tmux.conf .vimrc .gitconfig)
 for f in "${files[@]}"; do
 	ln -sf "$DOTFILES/$f" "$HOME/$f"
 done
@@ -22,7 +22,7 @@ for f in "$DOTFILES"/bin/*; do
 	ln -sf "$f" "$HOME/.local/bin/$(basename "$f")"
 done
 
-sources=(.bash_aliases .functions.sh .bash_prompt .bash_tools)
+sources=(.bash_aliases .functions.sh .bash_prompt .bash_tools .bash_vars)
 for s in "${sources[@]}"; do
 	if ! grep -q "source.*$s" "$BASHRC"; then
 		echo "[ -f \"\$HOME/$s\" ] && source \"\$HOME/$s\"" >>"$BASHRC"
