@@ -34,6 +34,7 @@ function obgrab() {
 }
 
 alias z=cd
-alias fresh="source ~/.zshrc"
+alias fresh="source ~/.bashrc"
 export EDITOR="nvim"
 set -o vi
+export BASH_SILENCE_DEPRECATION_WARNING=1
