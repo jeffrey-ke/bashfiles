@@ -4,3 +4,6 @@
 [submodule "commentstrip"]
 	path = commentstrip
 	url = git@github.com:jeffrey-ke/commentstrip.git
+[submodule "myvimtex"]
+	path = myvimtex
+	url = git@github.com:jeffrey-ke/myvimtex.git
