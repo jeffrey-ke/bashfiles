@@ -7,7 +7,24 @@ elif command -v brew &>/dev/null && [ -f "$(brew --prefix)/opt/bash-git-prompt/s
 elif [ -f "/usr/share/bash-git-prompt/gitprompt.sh" ]; then
     source "/usr/share/bash-git-prompt/gitprompt.sh"
 else
-    echo "Warning: bash-git-prompt not found. Install with:"
+    echo "Warning: bash-git-prompt not found. Run ./install-tools.sh, or install manually:"
     echo "  Mac: brew install bash-git-prompt"
     echo "  Linux: git clone https://github.com/magicmonty/bash-git-prompt.git ~/.bash-git-prompt"
+fi
+
+# (VIM) prompt tag — folded in from the retired .setup, which nothing in the repo
+# ever sourced (only a hand-edited ~/.bashrc on one machine did). Marks a shell
+# spawned from inside vim/nvim, which set $VIM in child processes. Appends after
+# gitprompt so it survives gitprompt's own PS1 rewriting.
+if [ -n "$BASH_VERSION" ]; then
+    _vim_tag_post() {
+        [ -z "$VIM" ] && return
+        [[ $PS1 == *"(VIM)"* ]] && return
+        PS1="${PS1}\[\033[1;35m\](VIM)\[\033[0m\] "
+    }
+    if declare -p PROMPT_COMMAND &>/dev/null && [[ $(declare -p PROMPT_COMMAND) == "declare -a"* ]]; then
+        PROMPT_COMMAND+=('_vim_tag_post')
+    else
+        PROMPT_COMMAND="${PROMPT_COMMAND:+$PROMPT_COMMAND;}_vim_tag_post"
+    fi
 fi

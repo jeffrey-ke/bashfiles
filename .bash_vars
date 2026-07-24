@@ -1,12 +1,11 @@
 export GIT_EDITOR=vim
+export EDITOR=nvim
 
 # Override Ubuntu's stock ignoreboth: ignorespace silently drops any command
 # from history whose first physical line starts with whitespace, which is
 # an easy accident on multi-line pastes (indented continuation lines, code
 # copied from markdown/chat). ignoredups alone still collapses repeats.
 export HISTCONTROL=ignoredups
-if [ -f "$HOME/.bash-git-prompt/gitprompt.sh" ]; then
-    GIT_PROMPT_ONLY_IN_REPO=1
-    source "$HOME/.bash-git-prompt/gitprompt.sh"
-fi
 
+# bash-git-prompt is sourced by .bash_prompt alone. It used to be sourced here
+# and in the (now deleted) .setup as well, which meant three loads per shell.

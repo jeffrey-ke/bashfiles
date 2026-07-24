@@ -24,13 +24,16 @@
 	prompt = false
 [core]
 	editor = vim
-	excludesFile = /home/jeffk/.gitignore_global
+	excludesFile = ~/.gitignore_global
+# Resolved off PATH, not an absolute path: this file is shared across machines and
+# the old hard-coded /ocean/.../bin/gh exists only on PSC. The PSC machine files
+# put that directory on PATH, so the helper keeps working there.
 [credential "https://github.com"]
-	helper = 
-	helper = !/ocean/projects/cis260205p/jke2/envs/main/bin/gh auth git-credential
+	helper =
+	helper = !gh auth git-credential
 [credential "https://gist.github.com"]
-	helper = 
-	helper = !/ocean/projects/cis260205p/jke2/envs/main/bin/gh auth git-credential
+	helper =
+	helper = !gh auth git-credential
 [filter "lfs"]
 	clean = git-lfs clean -- %f
 	smudge = git-lfs smudge -- %f

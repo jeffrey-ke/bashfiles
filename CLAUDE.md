@@ -8,22 +8,43 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ./run.sh   # Creates symlinks from ~/ to ~/dotfiles/ and patches .bashrc
 ```
 
-The installer is idempotent. After running, manually install vim-plug then run `:PlugInstall` in vim. The nvim config is a git submodule (`jeffrey-ke/kickstart.nvim`).
+The installer is idempotent and self-contained — on a fresh machine `run.sh` alone is
+enough. It initializes the submodules (`jeffrey-ke/kickstart.nvim` as `nvim/`,
+`jeffrey-ke/commentstrip`), symlinks the configs, patches `.bashrc`, runs
+`./sync-skills.sh`, then runs `./install-tools.sh`. Its one prerequisite is a GitHub
+SSH key, since the repo and both submodule URLs are `git@github.com:`.
+
+`./install-tools.sh` installs, into `~/.local/bin` without sudo: nvim, fd, rg, uv,
+claude, git-lfs, zoxide, fzf, yazi — plus bash-git-prompt, tpm, and vim-plug. Every
+entry is something a config file here depends on. Each failure warns and continues, so
+an offline machine still gets its symlinks. After it runs, `:PlugInstall` in vim and
+`prefix + I` in tmux fetch the actual plugins.
+
+`ugrep` is opt-in — `./install-tools.sh ug` — because Genivia publishes no Linux
+binary, so it has to compile (~1–2 min) and lands 7.x where Ubuntu's package is 5.0.
+The `ug` alias and the `ugq` function are unavailable until you install it, by that
+command or `apt install ugrep`. Passing any tool name as an argument installs only
+those tools and skips the plugin managers.
 
 ## Repository Structure
 
 **Dotfiles** — classic symlinked configs for bash/zsh, tmux, vim, neovim, git, and Python tooling.
 
-**`machines/`** — hostname-keyed dictionary of per-machine shell configs. `run.sh` appends this to `.bashrc` once:
-```bash
-MACHINE_CONFIG="$HOME/dotfiles/machines/$(hostname -s).sh"
-[ -f "$MACHINE_CONFIG" ] && source "$MACHINE_CONFIG"
-```
-To add config for a new machine, create `machines/<hostname>.sh`. No changes to `run.sh` needed.
+**`machines/`** — hostname-keyed per-machine shell configs, resolved by
+`source-machine.sh` (which `run.sh` appends to `.bashrc` once). Each `*.sh` filename is
+treated as an anchored regex against `hostname -s`: the first alphabetical regex match
+is sourced as a shared base, then `<exact-hostname>.sh` is layered on top so per-host
+overrides win. That is why `machines/r[0-9]+.sh` exists — one base for every PSC compute
+node, with `r033.sh` / `r191.sh` adding just their own path registries.
+
+To add config for a new machine, create `machines/<hostname>.sh`. No changes to `run.sh`
+needed. This is also where the per-machine path registry (`pp` / `pl` / `prm` / `to`,
+implemented in `.functions.sh`) writes its marker block, so `$datasets` and friends are
+deliberately machine-local and do not transfer.
 
 **`claude-skills/`** — personal skill library for Claude Code. Each skill is a directory with a `SKILL.md` containing YAML frontmatter (`name`, `description`, `argument-hint`) followed by the recipe. Skills encode reusable design patterns, reference implementations, and domain knowledge (robotics, math, refactoring patterns). To create a new skill, use the `create-skill` skill.
 
-**`claude-output-styles/`** — personal output styles for Claude Code. Each style is a single `.md` file with YAML frontmatter (`name`, `description`, `keep-coding-instructions`) followed by the prose instructions. `./sync-skills.sh` symlinks both `claude-skills/*` into `~/.claude/skills/` and `claude-output-styles/*.md` into `~/.claude/output-styles/` for autodiscovery (run it manually after adding a new skill or style — it's not called from `run.sh`).
+**`claude-output-styles/`** — personal output styles for Claude Code. Each style is a single `.md` file with YAML frontmatter (`name`, `description`, `keep-coding-instructions`) followed by the prose instructions. `./sync-skills.sh` symlinks both `claude-skills/*` into `~/.claude/skills/` and `claude-output-styles/*.md` into `~/.claude/output-styles/` for autodiscovery. `run.sh` calls it; run it manually after adding a new skill or style.
 
 ## Key Files
 
@@ -31,7 +52,9 @@ To add config for a new machine, create `machines/<hostname>.sh`. No changes to 
 |------|---------|
 | `.functions.sh` | 400+ line shell utility library: Docker helpers (`db`, `drun`, `dsa` with GPU/X11/USB), git helpers (`gso`, `gig`), rclone/Google Drive wrappers, `aa` for persistent alias creation |
 | `.bash_aliases` | Project-specific aliases and shortcuts |
-| `.bash_prompt` | Bash/zsh detection, Docker tag in prompt, git prompt, VI-mode indicator |
+| `.bash_prompt` | The only place bash-git-prompt is sourced (three fallback locations), plus the `(VIM)` tag marking a shell spawned from inside vim/nvim |
+| `.bash_vars` | `EDITOR`/`GIT_EDITOR`, and `HISTCONTROL=ignoredups` overriding Ubuntu's stock `ignoreboth` |
+| `.bash_tools` | Shell integration for the installed tools: PATH, zoxide `cd`, the custom fzf Ctrl-T directory-hopping widget, `grab`'s Ctrl-G, yazi's `y` wrapper |
 | `.tmux.conf` | Prefix=Ctrl-Space, vim-style pane nav (hjkl / HJKL to swap), vi copy mode |
 | `nvim/init.lua` | Kickstart.nvim — 1300-line Lua config; read top-to-bottom to understand plugin/keymap layout |
 
