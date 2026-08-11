@@ -14,5 +14,33 @@ export BASH_SILENCE_DEPRECATION_WARNING=1
 # copied from markdown/chat). ignoredups alone still collapses repeats.
 export HISTCONTROL=ignoredups
 
+# Every shell on the machine appends to the one ~/.bash_history instead of racing for
+# it. Default bash *overwrites* the file at exit with just that shell's own list, so
+# concurrent shells — tmux panes above all — clobber each other and the last one out
+# wins. histappend makes exit append; `history -a` on each prompt flushes as you go, so
+# a shell that is killed rather than exited doesn't lose its lines either.
+#
+# Deliberately no `history -c; history -r` alongside it: that rebuilds the list from the
+# file every prompt, renumbering this session's commands and interleaving every other
+# session's into its up-arrow order. Appending keeps per-session order intact; Ctrl-R
+# still reaches everything once a new shell reads the file.
+#
+# Ubuntu's stock .bashrc sets histappend and 1000/2000 before run.sh's source line
+# runs; these come after, so both machines end up with the same limits.
+shopt -s histappend
+HISTSIZE=100000
+HISTFILESIZE=200000
+
+# Guarded because `fresh` re-sources .bashrc: without it each re-source prepends
+# another `history -a`. ${PROMPT_COMMAND[*]} reads correctly whether bash-git-prompt
+# left a string or an array, and the array branch mirrors .bash_prompt's own handling.
+if [[ "${PROMPT_COMMAND[*]}" != *"history -a"* ]]; then
+	if declare -p PROMPT_COMMAND &>/dev/null && [[ $(declare -p PROMPT_COMMAND) == "declare -a"* ]]; then
+		PROMPT_COMMAND=('history -a' "${PROMPT_COMMAND[@]}")
+	else
+		PROMPT_COMMAND="history -a;${PROMPT_COMMAND:+ $PROMPT_COMMAND}"
+	fi
+fi
+
 # bash-git-prompt is sourced by .bash_prompt alone. It used to be sourced here
 # and in the (now deleted) .setup as well, which meant three loads per shell.
