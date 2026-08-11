@@ -19,6 +19,7 @@
 #   uv       shebang of bin/art, bin/run, bin/commentstrip; the `ur` alias
 #   claude   haiku / opus / sonn / fab
 #   git-lfs  .gitconfig sets filter.lfs.required, so LFS repos hard-fail without it
+#   tmux     .tmux.conf, every tmux-*.sh, `trun`; tpm below is only its plugin manager
 # plus three plugin managers whose absence half-breaks a config: bash-git-prompt
 # (.bash_prompt), tpm (.tmux.conf), vim-plug (.vimrc).
 #
@@ -182,6 +183,20 @@ install_claude() {
 	curl -fsSL https://claude.ai/install.sh | bash
 }
 
+# The one tool with no no-sudo Linux route: tmux/tmux publishes source tarballs only,
+# and building it wants libevent + ncurses headers. Ubuntu ships it preinstalled or a
+# `sudo apt install tmux` away, so the loop's first gate covers Linux in practice and
+# the note after the loop covers the rest. macOS ships no tmux at all — the gap that
+# left `tpm` cloned and `.tmux.conf` symlinked next to a `tmux: command not found`.
+install_tmux() {
+	if [ "$(uname -s)" = "Darwin" ]; then
+		command -v brew >/dev/null 2>&1 || return 1
+		brew install tmux
+		return
+	fi
+	return 1
+}
+
 install_git_lfs() {
 	if [ "$(uname -s)" = "Darwin" ]; then
 		command -v brew >/dev/null 2>&1 || return 1
@@ -205,17 +220,28 @@ if [ "${BASH_SOURCE[0]}" = "$0" ]; then
 	if [ "$#" -gt 0 ]; then
 		tools=("$@")
 	else
-		tools=(zoxide fzf yazi nvim fd rg uv claude git-lfs)
+		tools=(zoxide fzf yazi nvim fd rg uv claude git-lfs tmux)
 	fi
+
+	# Run the tool to prove it actually executes — the check that catches a
+	# wrong-platform binary, which `command -v` alone reports as present. The flag isn't
+	# universal: tmux only understands -V and exits non-zero on --version, which read as
+	# "install failed" for a tmux that was sitting right there on PATH.
+	tool_version() {
+		case "$1" in
+			tmux) "$1" -V ;;
+			*) "$1" --version ;;
+		esac
+	}
 
 	for tool in "${tools[@]}"; do
 		if ! declare -F "install_${tool//-/_}" >/dev/null; then
 			echo "✗ no installer for '$tool'" >&2
 			continue
 		fi
-		if command -v "$tool" >/dev/null 2>&1 && "$tool" --version >/dev/null 2>&1; then
-			echo "✓ $tool already installed ($("$tool" --version 2>/dev/null | head -1))"
-		elif "install_${tool//-/_}" >/dev/null 2>&1 && command -v "$tool" >/dev/null 2>&1 && "$tool" --version >/dev/null 2>&1; then
+		if command -v "$tool" >/dev/null 2>&1 && tool_version "$tool" >/dev/null 2>&1; then
+			echo "✓ $tool already installed ($(tool_version "$tool" 2>/dev/null | head -1))"
+		elif "install_${tool//-/_}" >/dev/null 2>&1 && command -v "$tool" >/dev/null 2>&1 && tool_version "$tool" >/dev/null 2>&1; then
 			echo "✓ installed $tool -> $(command -v "$tool")"
 		else
 			echo "✗ $tool install failed — re-run ./install-tools.sh later" >&2
@@ -228,6 +254,11 @@ if [ "${BASH_SOURCE[0]}" = "$0" ]; then
 
 	command -v ug >/dev/null 2>&1 ||
 		echo "· ug not installed (opt-in: ./install-tools.sh ug builds it from source, or apt install ugrep)"
+
+	# The generic per-tool failure line says "re-run later", which is wrong for tmux on
+	# Linux — re-running can't help without a package manager.
+	command -v tmux >/dev/null 2>&1 ||
+		echo "· tmux needs a package manager: brew install tmux, or sudo apt install tmux"
 
 	# Plugin managers: each is a plain git clone / file drop into a fixed location
 	# that the matching config already looks for.

@@ -24,7 +24,9 @@ SSH key, since the repo and both submodule URLs are `git@github.com:`.
 
 `./install-tools.sh` installs, into `~/.local/bin` without sudo: nvim, fd, rg, uv,
 claude, git-lfs, zoxide, fzf, yazi — plus bash-git-prompt, tpm, and vim-plug. Every
-entry is something a config file here depends on. Each failure warns and continues, so
+entry is something a config file here depends on. `tmux` is in the list too but has no
+no-sudo Linux route (upstream ships source only), so there it needs `apt`; macOS gets it
+from brew like the rest. Each failure warns and continues, so
 an offline machine still gets its symlinks. After it runs, `:PlugInstall` in vim and
 `prefix + I` in tmux fetch the actual plugins.
 
