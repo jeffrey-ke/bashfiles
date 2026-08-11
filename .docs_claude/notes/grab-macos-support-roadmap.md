@@ -55,12 +55,11 @@ they don't have. Revisit only if a *different* Mac (without `xclip`
 installed) needs `grab`, or if `xclip`'s XQuartz/Homebrew dependency
 ever becomes inconvenient to maintain.
 
-## 3. Cross-platform install/bootstrap — CODE DONE, macOS verification OPEN
+## 3. Cross-platform install/bootstrap — DONE, verified on macOS 2026-08-11
 
 Shipped: plan/spec at
-[grab-macos-install-bootstrap.md](../plans/active/grab-macos-install-bootstrap.md)
-(deliberately left in `plans/active/`, not moved to `completed/`, until
-the open item below is closed — same pattern as sub-project 1). Two
+[grab-macos-install-bootstrap.md](../plans/completed/grab-macos-install-bootstrap.md)
+(moved to `completed/` once the open item below was closed). Two
 tasks, both task-reviewed and whole-branch reviewed (Ready to merge:
 Yes, one Minor cosmetic fix applied post-review):
 
@@ -89,11 +88,31 @@ machine during brainstorming and again during implementation (fake
 `uname`/`brew`, a broken-binary fixture, a `bin/`-mirroring fixture) —
 not just asserted.
 
-**Still open: no Mac available in this session to actually run `run.sh`
-on macOS.** Move this plan to `completed/` and update `PLANS_TOC.md` only
-once someone runs it on `jeffpro` (or another Mac) and confirms the
-symlinks land, `sed -i.bak` doesn't error, and `brew install fzf`/`brew
-install yazi` actually succeed.
+**Closed 2026-08-11 on `jke-laptop`** (a second Mac, not `jeffpro`). All
+three release conditions confirmed: the six `bin/` symlinks land, BSD
+`sed -i.bak` runs clean under `set -e`, and `brew install` succeeds for
+fzf/yazi/nvim. Running it for real also turned up what a Linux-only
+session couldn't:
+
+- The Darwin branch was missing from `install_fd`/`install_rg`/
+  `install_git_lfs`, so six of nine tools failed on a fresh Mac. `git-lfs`
+  was the one with teeth — `.gitconfig` sets `filter.lfs.required`, so LFS
+  repos hard-fail rather than degrade. Now brew-branched like the rest.
+- `rust_target`'s `return 1` was being swallowed by the `$(...)` it's
+  called in, degrading the asset pattern to a bare `\.tar\.gz` that
+  matches whichever archive a release lists first — the *correct* Apple
+  Silicon build for both fd and ripgrep today, purely by luck of ordering.
+  Now checked explicitly.
+- Homebrew being installed isn't enough: `/opt/homebrew/bin` isn't on the
+  default macOS PATH, and Homebrew only prints the `shellenv` line for you
+  to add. `.bash_tools` now evals it (guarded), which is what makes the
+  brew-delegated tools visible to both the installer's own `command -v
+  brew` guard and the integration blocks below it.
+- Nothing `run.sh` appends to `.bashrc` loaded at all, because macOS ships
+  no `.bash_profile`/`.bash_login`/`.profile` and Ghostty/Terminal start
+  the shell via `login`. `run.sh` now patches whichever login file exists,
+  creating a one-line `.bash_profile` only when none do (creating one on
+  Ubuntu would shadow its `.profile`).
 
 ## 4. CTRL-G on bash 3.2 (corrected scope — not zsh)
 

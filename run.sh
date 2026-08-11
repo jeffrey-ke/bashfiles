@@ -21,11 +21,14 @@ ln -sf "$DOTFILES/ugrep-config" "$HOME/.ugrep"
 ln -sf "$DOTFILES/gitignore_global" "$HOME/.gitignore_global"
 ln -sf "$DOTFILES/pyrightconfig.json" "$HOME/pyrightconfig.json"
 
+# -n on both: these two links point at directories, and plain `ln -sf` dereferences an
+# existing symlink-to-directory and drops the new link *inside* it — a second run would
+# create dotfiles/nvim/nvim -> dotfiles/nvim (untracked content inside the submodule).
 mkdir -p "$HOME/.config"
-ln -sf "$DOTFILES/nvim" "$HOME/.config/nvim"
+ln -sfn "$DOTFILES/nvim" "$HOME/.config/nvim"
 
 [ -d "$HOME/.config/yazi" ] && [ ! -L "$HOME/.config/yazi" ] && rm -rf "$HOME/.config/yazi"
-ln -sf "$DOTFILES/yazi" "$HOME/.config/yazi"
+ln -sfn "$DOTFILES/yazi" "$HOME/.config/yazi"
 
 mkdir -p "$HOME/.local/bin"
 for f in "$DOTFILES"/bin/*; do
@@ -46,6 +49,22 @@ for s in "${sources[@]}"; do
 	grep -qE "^[^#]*(source|\.)[[:space:]]+[^#]*$s" "$BASHRC" && continue
 	echo "$line" >>"$BASHRC"
 done
+
+# A login shell reads the first of .bash_profile/.bash_login/.profile that exists and
+# never reads .bashrc — so on macOS, where none of the three ship, everything appended
+# above is dead code (Ghostty/Terminal go through `login`, which starts a login shell).
+# Ubuntu's stock .profile already sources .bashrc, and creating a .bash_profile there
+# would shadow it, so patch the file bash actually reads instead of always making one.
+profile=""
+for f in "$HOME/.bash_profile" "$HOME/.bash_login" "$HOME/.profile"; do
+	[ -f "$f" ] && profile="$f" && break
+done
+if [ -z "$profile" ]; then
+	profile="$HOME/.bash_profile"
+	touch "$profile"
+fi
+grep -qE "^[^#]*(source|\.)[[:space:]]+[^#]*\.bashrc" "$profile" ||
+	echo '[ -f "$HOME/.bashrc" ] && . "$HOME/.bashrc"' >>"$profile"
 
 # Migrate the old inline machine-config block (exact-hostname only) if present.
 sed -i.bak '/MACHINE_CONFIG/d' "$BASHRC" && rm -f "$BASHRC.bak"

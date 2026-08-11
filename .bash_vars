@@ -1,6 +1,13 @@
 export GIT_EDITOR=vim
 export EDITOR=nvim
 
+set -o vi
+
+# macOS's /bin/bash is 3.2, and it nags about zsh on every login shell once $SHELL
+# points at it. Scoped to the OS rather than a host, which machines/ can't express
+# (it keys on `hostname -s`); an unused variable elsewhere.
+export BASH_SILENCE_DEPRECATION_WARNING=1
+
 # Override Ubuntu's stock ignoreboth: ignorespace silently drops any command
 # from history whose first physical line starts with whitespace, which is
 # an easy accident on multi-line pastes (indented continuation lines, code

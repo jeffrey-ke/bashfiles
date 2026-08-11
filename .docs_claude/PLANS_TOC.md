@@ -32,9 +32,11 @@ When a plan is added, copied, moved, renamed, or deleted:
 
 ## Chronological index
 
+- **2026-08-11** — [macos-login-shell-and-machine-config-dedup.md](plans/completed/macos-login-shell-and-machine-config-dedup.md) `run.sh`, `.bash_tools`, `machines/`
 - **2026-07-15** — [fzf-ctrl-t-directory-navigation.md](plans/completed/fzf-ctrl-t-directory-navigation.md) `.bash_tools`
 - **2026-07-15** — [fvim-alias-function-collision-fix.md](plans/completed/fvim-alias-function-collision-fix.md) `machines/tesu.sh`
 - **2026-07-15** — [grep2qf-grep-to-quickfix.md](plans/completed/grep2qf-grep-to-quickfix.md) `bin/grep2qf`
+- **2026-07-13** — [grab-macos-install-bootstrap.md](plans/completed/grab-macos-install-bootstrap.md) `run.sh`, `install-tools.sh`
 - **2026-07-13** — [grab-preview-follow-match.md](plans/completed/grab-preview-follow-match.md) `bin/grab`
 - **2026-07-13** — [grab-preview-follow-scroll.md](plans/completed/grab-preview-follow-scroll.md) `bin/grab`
 - **2026-07-13** — [grab-preview-window.md](plans/completed/grab-preview-window.md) `bin/grab`
@@ -293,6 +295,54 @@ When a plan is added, copied, moved, renamed, or deleted:
 > - `~ source-machine.sh` — additive exact+regex sourcing instead of exact-wins-and-stops
 
 ## 5. Shell: Tooling & Bootstrap
+
+### [macos-login-shell-and-machine-config-dedup.md](plans/completed/macos-login-shell-and-machine-config-dedup.md)
+`~/dotfiles/run.sh`, `~/dotfiles/.bash_tools`, `~/dotfiles/machines/` · 2026-08-11
+> First bootstrap on `jke-laptop` reported success and changed nothing about the shell:
+> Ghostty starts bash through `login` as a *login* shell, which reads
+> `.bash_profile`/`.bash_login`/`.profile` and never `.bashrc` — and macOS ships none of
+> the three, so every `source` line `run.sh` appends was dead code. Ubuntu's stock
+> `.profile` had been covering for that. Fixing it also exposed a non-idempotent `ln -sf`
+> that self-links the repo into itself on the second run, and that `machines/jeffpro-3.sh`
+> was holding four pieces of config no machine file needed to own.
+>
+> **Key changes:**
+> - `~ run.sh` — appends the `.bashrc` bridge to whichever login file bash reads,
+>   creating a one-line `.bash_profile` only when none exist (making one on Ubuntu would
+>   shadow its `.profile`)
+> - `~ run.sh` — `ln -sfn` for the `.config/nvim` and `.config/yazi` links; `ln -sf`
+>   dereferences an existing symlink-to-directory and nests inside it
+> - `~ .bash_tools` — guarded `brew shellenv` above the `command -v` checks
+>   (`/opt/homebrew/bin` isn't on the default macOS PATH)
+> - `~ .bash_tools` — the `.aliases`-sourcing `cd`, moved next to zoxide's init because
+>   `.functions.sh` is sourced *before* it and would be clobbered
+> - `~ .functions.sh` — `obgrab`, destination via the `$papers` registry entry instead of
+>   a hardcoded path; `alias ot` in the shared `.bash_aliases` had been dead everywhere else
+> - `~ .bash_vars`, `~ .bash_aliases` — `set -o vi` + `BASH_SILENCE_DEPRECATION_WARNING`,
+>   and `alias fresh` (hand-copied into four machine files)
+> - `~ machines/{jeffpro-3,tesu,br013,r[0-9]+}.sh` — shared config removed; `alias z=cd`,
+>   duplicate `EDITOR`, two `~/.local/bin` prepends and a dead `cd` copy deleted
+
+### [grab-macos-install-bootstrap.md](plans/completed/grab-macos-install-bootstrap.md)
+`~/dotfiles/run.sh`, `~/dotfiles/install-tools.sh` · 2026-07-13
+> Sub-project 3 of the macOS support roadmap: the three things that stopped a fresh Mac
+> from bootstrapping at all — `bin/`'s user commands never being symlinked, GNU-only
+> `sed -i` aborting `run.sh` under `set -e`, and `install-tools.sh`'s Linux-only release
+> assets. Darwin branches shell out to Homebrew rather than adding per-publisher asset
+> patterns, since the publishers disagree about the same CPU (fd/ripgrep say `aarch64`,
+> git-lfs says `arm64` and ships a zip). Written without a Mac to test on and held in
+> `active/` for that reason; verified end-to-end on `jke-laptop` 2026-08-11, which also
+> extended the Darwin branch to the three tools the original pass left behind.
+>
+> **Key changes:**
+> - `~ run.sh` — symlinks `bin/`'s extensionless executables; portable `sed -i.bak`
+> - `~ install-tools.sh` — Darwin brew branches for fzf/yazi/nvim, then fd/rg/git-lfs;
+>   dispatch loop now requires `"$tool" --version` to succeed, not just `command -v`
+> - `~ install-tools.sh` — `latest_asset_url` pattern anchored with `$` (ripgrep's
+>   `.tar.gz.sha256` sibling matched the unanchored form); `rust_target`'s failure now
+>   propagates instead of degrading the asset pattern to a bare extension
+> - Verified on macOS: all six `bin/` symlinks land, `sed -i.bak` survives BSD sed,
+>   `brew install` path works for all six brew-delegated tools
 
 ### [cli-tools-bootstrap.md](plans/completed/cli-tools-bootstrap.md)
 `~/dotfiles/install-tools.sh` · 2026-07-07

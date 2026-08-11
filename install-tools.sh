@@ -3,6 +3,14 @@
 # Always exits 0 so run.sh's `set -e` survives an offline machine;
 # per-tool failures print a warning instead.
 #
+# On macOS everything except zoxide/uv/claude (whose own installers are cross-platform)
+# delegates to Homebrew instead, landing in /opt/homebrew: the no-sudo direct-download
+# route exists for shared/restricted Linux boxes with no package manager, a constraint
+# that doesn't apply to a personal Mac, and the release-asset naming differs per
+# publisher for the same CPU (fd/ripgrep say aarch64, git-lfs says arm64 and ships a
+# zip) — platform detection Homebrew already does correctly. `brew shellenv` in
+# .bash_tools is what puts the results on PATH.
+#
 # Anything referenced by .bash_aliases / .functions.sh / .bash_tools / nvim belongs
 # here, otherwise a fresh clone silently loses the feature that depends on it:
 #   nvim     the editor itself (efunc, envim, laa, ugq, fvim, bin/fgr, bin/pydef)
@@ -26,10 +34,15 @@ WORKDIR="$(mktemp -d)"
 trap 'rm -rf "$WORKDIR"' EXIT
 
 latest_asset_url() { # <owner/repo> <asset-pattern>
+	# The pattern is anchored to the end of the URL: every caller's pattern ends at the
+	# file extension, and several projects publish a checksum sibling (ripgrep ships
+	# <asset>.tar.gz.sha256) that an unanchored pattern matches just as well. Without
+	# the anchor the right one is picked only because the API happens to list the
+	# archive before its .sha256.
 	curl -sSfL "https://api.github.com/repos/$1/releases/latest" |
 		grep -o '"browser_download_url": *"[^"]*"' |
 		grep -o 'https://[^"]*' |
-		grep -m1 "$2"
+		grep -m1 "$2\$"
 }
 
 # Fetch a release tarball and install one named binary out of it, wherever it sits.
@@ -46,6 +59,11 @@ fetch_tar_bin() { # <owner/repo> <asset-pattern> <binary-name>
 }
 
 # Rust-style target triple for the running machine (musl where publishers ship it).
+# Linux-only by construction — the Darwin branches above return before reaching it.
+# Callers must check its status explicitly: it is used inside a command substitution,
+# where a bare `$(rust_target)` throws the failure away and leaves an empty triple,
+# degrading the caller's asset pattern to a bare extension that matches whichever
+# archive the release happens to list first.
 rust_target() {
 	case "$(uname -m)" in
 		x86_64) echo "x86_64-unknown-linux-musl" ;;
@@ -123,11 +141,26 @@ install_nvim() {
 }
 
 install_fd() {
-	fetch_tar_bin sharkdp/fd "$(rust_target)\.tar\.gz" fd
+	if [ "$(uname -s)" = "Darwin" ]; then
+		command -v brew >/dev/null 2>&1 || return 1
+		brew install fd
+		return
+	fi
+	local target
+	target="$(rust_target)" || return 1
+	fetch_tar_bin sharkdp/fd "$target\.tar\.gz" fd
 }
 
 install_rg() {
-	fetch_tar_bin BurntSushi/ripgrep "$(rust_target)\.tar\.gz" rg
+	if [ "$(uname -s)" = "Darwin" ]; then
+		command -v brew >/dev/null 2>&1 || return 1
+		# Formula name differs from the binary the dispatch loop verifies (`rg`).
+		brew install ripgrep
+		return
+	fi
+	local target
+	target="$(rust_target)" || return 1
+	fetch_tar_bin BurntSushi/ripgrep "$target\.tar\.gz" rg
 }
 
 # Opt-in only (`./install-tools.sh ug`). Genivia publishes no Linux binary — the
@@ -150,6 +183,11 @@ install_claude() {
 }
 
 install_git_lfs() {
+	if [ "$(uname -s)" = "Darwin" ]; then
+		command -v brew >/dev/null 2>&1 || return 1
+		brew install git-lfs
+		return
+	fi
 	local arch
 	case "$(uname -m)" in
 		x86_64) arch=amd64 ;;

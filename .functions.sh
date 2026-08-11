@@ -530,6 +530,21 @@ cc() {
 	cd "$1" && claude
 }
 
+# scp a file off another host into this machine's papers directory. Lived in
+# machines/jeffpro-3.sh with the destination hardcoded, while `alias ot='obgrab tesu'`
+# sat in the shared .bash_aliases — so the alias was dead on every other machine. The
+# destination is exactly what the path registry below exists for, so it comes from
+# $papers; only that assignment is per-machine now.
+obgrab() {
+	local host="$1" remote_path="$2"
+	local name="${3:-$(basename "$remote_path")}"
+	if [ -z "$papers" ]; then
+		echo "obgrab: \$papers is unset — register this machine's papers directory with: pp <path> papers" >&2
+		return 1
+	fi
+	scp -r "$host:$remote_path" "$papers/$name"
+}
+
 # --- path registry: machine-specific long-path -> short $var registry ---
 # Mechanism lives here (shared, symlinked). Data lives in a marker block inside
 # machines/<hostname>.sh (git-tracked, already sourced by .bashrc) -> per-machine.

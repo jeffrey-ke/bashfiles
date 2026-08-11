@@ -4,7 +4,46 @@
 
 case ":$PATH:" in *":$HOME/.local/bin:"*) ;; *) export PATH="$HOME/.local/bin:$PATH" ;; esac
 
-command -v zoxide >/dev/null 2>&1 && eval "$(zoxide init --cmd cd bash)"
+# On macOS install-tools.sh delegates to Homebrew, which lands in /opt/homebrew on
+# Apple Silicon — not on the default PATH, and its installer only prints the shellenv
+# line for you to add yourself. Without this, brew-installed tools are invisible both
+# to install-tools.sh's `command -v brew` guard and to every check below, so the
+# integration silently no-ops as if nothing were installed. Must stay above those
+# checks; guarded, so it does nothing on Linux.
+[ -x /opt/homebrew/bin/brew ] && eval "$(/opt/homebrew/bin/brew shellenv)"
+
+if command -v zoxide >/dev/null 2>&1; then
+	eval "$(zoxide init --cmd cd bash)"
+
+	# Source a directory's .aliases on the way into it, for every component of the
+	# new path. Wraps zoxide's own `cd`, so it has to live here, after the eval
+	# above: .bashrc sources .functions.sh *before* .bash_tools, so defining this
+	# there — the intuitive home for a shell function — would be silently clobbered
+	# by zoxide's init. That ordering is why this lived in a machine file instead.
+	# `local _CD_SOURCING` is visible to callees, so an .aliases that itself calls
+	# cd walks no further.
+	cd() {
+		__zoxide_z "$@" || return $?
+		[[ -n "$_CD_SOURCING" ]] && return 0
+		local _CD_SOURCING=1
+		local accumulator="" remaining="${PWD#/}"
+		while [[ -n "$remaining" ]]; do
+			if [[ "$remaining" == */* ]]; then
+				accumulator+="/${remaining%%/*}"
+				remaining="${remaining#*/}"
+			else
+				accumulator+="/$remaining"
+				remaining=""
+			fi
+			if [[ -f "$accumulator/.aliases" ]]; then
+				echo "Sourcing $accumulator/.aliases:"
+				cat "$accumulator/.aliases"
+				source "$accumulator/.aliases"
+			fi
+		done
+		return 0
+	}
+fi
 
 if command -v fzf >/dev/null 2>&1; then
 	eval "$(fzf --bash)"

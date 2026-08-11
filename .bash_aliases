@@ -75,3 +75,5 @@ alias rg='rg --vimgrep'
 alias lsg='ls -a | grep'
 alias ot='obgrab tesu'
 alias lsla='ls -la'
+# Was hand-copied into four separate machines/ files, none of which needed to own it.
+alias fresh="source ~/.bashrc"

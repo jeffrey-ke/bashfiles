@@ -1,4 +1,3 @@
-alias fresh="source ~/.bashrc"
 eval "$(zoxide init bash)"
 
 # >>> path registry >>>

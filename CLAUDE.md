@@ -8,6 +8,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ./run.sh   # Creates symlinks from ~/ to ~/dotfiles/ and patches .bashrc
 ```
 
+`run.sh` also makes sure a login shell reaches `.bashrc`, since bash reads only the
+first of `.bash_profile`/`.bash_login`/`.profile` and never `.bashrc` itself. Ubuntu's
+stock `.profile` already does this; macOS ships none of the three, so a fresh Mac gets
+a one-line `~/.bash_profile` stub — without it every `source` line `run.sh` appends is
+dead code, because Ghostty and Terminal both start the shell via `login`. Where a login
+file already exists it is patched, never replaced (creating `.bash_profile` on Ubuntu
+would shadow `.profile`).
+
 The installer is idempotent and self-contained — on a fresh machine `run.sh` alone is
 enough. It initializes the submodules (`jeffrey-ke/kickstart.nvim` as `nvim/`,
 `jeffrey-ke/commentstrip`), symlinks the configs, patches `.bashrc`, runs
@@ -19,6 +27,12 @@ claude, git-lfs, zoxide, fzf, yazi — plus bash-git-prompt, tpm, and vim-plug. 
 entry is something a config file here depends on. Each failure warns and continues, so
 an offline machine still gets its symlinks. After it runs, `:PlugInstall` in vim and
 `prefix + I` in tmux fetch the actual plugins.
+
+On macOS that list instead comes from **Homebrew** — everything except zoxide, uv, and
+claude, whose own installers are cross-platform — so brew is a second prerequisite
+there, and `install-tools.sh` reports `✗` for six of nine tools without it. Homebrew
+alone isn't sufficient: `/opt/homebrew/bin` is not on the default macOS PATH, which is
+why `.bash_tools` evals `brew shellenv` before its `command -v` checks.
 
 `ugrep` is opt-in — `./install-tools.sh ug` — because Genivia publishes no Linux
 binary, so it has to compile (~1–2 min) and lands 7.x where Ubuntu's package is 5.0.
