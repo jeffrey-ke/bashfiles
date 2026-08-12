@@ -113,7 +113,6 @@ touched files.
   `setLastCommandState;history -a; setLastCommandState;setGitPrompt;_vim_tag_post;__zoxide_hook;_vim_tag_post;_vim_tag_post`.
   `__zoxide_hook` stays single because zoxide's init checks for itself first — the pattern
   this plan's own `history -a` hook and any fix here should follow.
-- `source-machine.sh` runs 8 subprocesses (`hostname -s` + one `basename` per machine
-  file) to resolve a host that often matches nothing; all of it is pure-bash expressible.
-  Costly on a machine that authorizes every exec — see
+- ~~`source-machine.sh` runs 8 subprocesses to resolve a host that often matches
+  nothing~~ — done 2026-08-11, now zero subprocesses; see
   [macos-shell-startup-latency.md](../../notes/macos-shell-startup-latency.md).

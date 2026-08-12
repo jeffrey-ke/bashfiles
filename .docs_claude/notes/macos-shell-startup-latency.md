@@ -64,9 +64,20 @@ per interactive shell:
 
 | where | execs | reducible? |
 |---|---|---|
-| `source-machine.sh` | 8 — `hostname -s` + one `basename` per `machines/*.sh` | yes, entirely: `$HOSTNAME` is already the short name, and `${f##*/}` / `${name%.sh}` replace `basename` |
+| `source-machine.sh` | ~~8 — `hostname -s` + one `basename` per `machines/*.sh`~~ → **0** | done 2026-08-11: `${HOSTNAME%%.*}` and `${f##*/}`/`${name%.sh}`. 0.054s → 0.001s |
 | `.bash_tools` | 3 — `brew shellenv`, `zoxide init`, `fzf --bash` | only by caching their output to a file, which then goes stale on upgrade |
 | `.bash_prompt` | bash-git-prompt's own `git` calls | not without dropping the prompt |
 
-**Open item:** the `source-machine.sh` rewrite (8 execs → 0) is the one free win and has
-not been done.
+Note the honest size of that win: 8 forks+execs, but only **2 distinct binaries**
+(`hostname`, `basename`), and an authorizing agent caches per binary — so seven
+`basename` calls are one cold verdict plus six cached hits, not seven. The steady-state
+saving is the ~50ms of forking, verified as 0.054s → 0.001s. It was worth doing because
+it was the only exec in the startup path that bought nothing; `brew shellenv`,
+`zoxide init` and `fzf --bash` each produce output the shell actually needs, and can only
+be removed by caching output that then goes stale on upgrade.
+
+Equivalence was checked rather than assumed: old and new resolution agree for every name
+in `machines/` (`tesu`, `jeffpro-3`, `br011`, `br013`, `r[0-9]+` against r033/r191/r7/r999),
+for a host that matches nothing, and — feeding the new code an FQDN where the old code
+would have received `hostname -s` output — for `r033.ib.bridges2.psc.edu`, `tesu.local`,
+`jke-laptop.local`.
