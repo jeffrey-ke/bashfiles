@@ -72,7 +72,7 @@ deliberately machine-local and do not transfer.
 | `.bash_vars` | `EDITOR`/`GIT_EDITOR`, and `HISTCONTROL=ignoredups` overriding Ubuntu's stock `ignoreboth` |
 | `.bash_tools` | Shell integration for the installed tools: PATH, zoxide `cd`, the custom fzf Ctrl-T directory-hopping widget, `grab`'s Ctrl-G, yazi's `y` wrapper |
 | `.tmux.conf` | Prefix=Ctrl-Space, vim-style pane nav (hjkl / HJKL to swap), vi copy mode |
-| `nvim/init.lua` | Kickstart.nvim — 1300-line Lua config; read top-to-bottom to understand plugin/keymap layout |
+| `nvim/init.lua` | Kickstart.nvim fork — ~1350-line Lua config; read top-to-bottom to understand plugin/keymap layout. Forked from upstream at `3338d39` (2025-05-22); upstream has since dropped lazy.nvim for `vim.pack`, so it can no longer be merged — see the divergence note below |
 
 ## tmux Conventions
 
@@ -118,6 +118,7 @@ check this directory directly before re-investigating a "why is X slow / broken"
 | `macos-shell-startup-latency.md` | Why new terminal tabs take seconds on a Mac with an exec-authorizing security agent, and why it is not the sourced files |
 | `tmux-popup-clipboard-ssh.md` | Why OSC 52 copy doesn't work inside `display-popup` |
 | `grab-macos-support-roadmap.md` | The four macOS sub-projects for `grab`/dotfiles and what's still open |
+| `nvim-kickstart-upstream-divergence.md` | Why `nvim/` can't be merged from upstream kickstart any more, why nvim-treesitter is pinned to `master`, and the three ways out |
 
 ## Adding a New Skill
 

@@ -1,5 +1,24 @@
 # Fix: unreadable grey code blocks in render-markdown under Solarized ANSI-16
 
+> **PREMISE SUPERSEDED 2026-08-11 — the fix itself still ships.**
+> `code.disable_background = true` in `nvim/lua/custom/plugins/markdown.lua` is
+> unchanged and still correct. But the design it reasons from is gone: the config
+> moved off ANSI-16 solarized (`termguicolors = false`) to true-color seoul256, so
+> the "ANSI-16 has no better option" argument no longer holds — a readable tinted
+> block *is* reachable now, if anyone wants one.
+>
+> Two specifics below are now false. The closing note "inline code is untouched
+> (keeps `RenderMarkdownCodeInline` → `ColorColumn` tint)" stopped being true when
+> `1d5a2df` overrode that group to bold blue; that override has since been deleted
+> too, so inline code is back to the plugin's default link. And "no touch to
+> `set_ansi_ui_hl()` is required" refers to a function that no longer exists.
+> See [nvim-cterm-highlight-layer-removal.md](nvim-cterm-highlight-layer-removal.md).
+>
+> Still valuable: the source-level root cause — `RenderMarkdownCode` links to
+> `ColorColumn` and **re-establishes that link on every `ColorScheme` event**
+> (`core/colors.lua:84`), which is why overriding it directly is fragile and why a
+> plugin `opts` change was the right layer.
+
 **Status:** Shipped 2026-07-12 — `nvim/lua/custom/plugins/markdown.lua` now passes
 `code.disable_background = true`. Verified headlessly that render-markdown's `setup`
 accepts the option and it resolves to `true` for all languages (label/border config

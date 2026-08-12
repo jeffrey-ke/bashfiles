@@ -32,6 +32,7 @@ When a plan is added, copied, moved, renamed, or deleted:
 
 ## Chronological index
 
+- **2026-08-11** — [nvim-cterm-highlight-layer-removal.md](plans/completed/nvim-cterm-highlight-layer-removal.md) `nvim/init.lua`, `nvim/lua/keymaps.lua`
 - **2026-08-11** — [macos-login-shell-and-machine-config-dedup.md](plans/completed/macos-login-shell-and-machine-config-dedup.md) `run.sh`, `.bash_tools`, `machines/`
 - **2026-07-15** — [fzf-ctrl-t-directory-navigation.md](plans/completed/fzf-ctrl-t-directory-navigation.md) `.bash_tools`
 - **2026-07-15** — [fvim-alias-function-collision-fix.md](plans/completed/fvim-alias-function-collision-fix.md) `machines/tesu.sh`
@@ -61,8 +62,33 @@ When a plan is added, copied, moved, renamed, or deleted:
 
 ## 1. Nvim: Editing, Git & Highlighting
 
+### [nvim-cterm-highlight-layer-removal.md](plans/completed/nvim-cterm-highlight-layer-removal.md)
+`~/dotfiles/nvim/init.lua`, `nvim/lua/keymaps.lua` · 2026-08-11
+> An inventory of every visual/TUI change layered on kickstart (fork point `3338d39`,
+> 2025-05-22) turned up that the whole custom highlight layer was inert *and* destructive:
+> all 16 groups were declared `ctermfg`/`ctermbg`-only, which `termguicolors = true`
+> ignores, and since `nvim_set_hl` replaces rather than merges, each one erased a
+> definition seoul256 ships — fugitive diffs and `:diffthis` were rendering uncolored.
+> The layer was correct for the *previous* design (solarized in ANSI-16 passthrough with
+> `termguicolors = false`); `ffbe480` flipped to true-color seoul256 and converted only
+> `TabLineSel`/`TabLineModified`. Deleting it is cheaper and more durable than porting 16
+> groups to hex, given five colorschemes in this file's lifetime. Structure was kept
+> (buffer tabline, statusline section layout, `laststatus=3`, `:ToggleBackground`); only
+> color was dropped. Also pins nvim-treesitter to `branch = 'master'`, since its default
+> branch is now the `main` rewrite and `:Lazy update` would have stepped onto it.
+>
+> **Key changes:**
+> - `- set_ansi_ui_hl() + ColorScheme autocmd` — `~/dotfiles/nvim/init.lua` — 10 cterm-only UI groups
+> - `- StatusLine{File,Git,Loc,Pwd,NC}` — `~/dotfiles/nvim/init.lua` — statusline now colors only the mode section
+> - `- DraftProse block` — `~/dotfiles/nvim/init.lua` — `:ToggleProse`, `<leader>tp`; frees `<leader>tp` for toggleterm, which it had shadowed
+> - `- leader WinSeparator flash` — `~/dotfiles/nvim/init.lua` — `vim.on_key` namespace `leader-winsep-flash`
+> - `- custom_foldtext()` — `~/dotfiles/nvim/init.lua` — ~50 lines → `vim.opt.foldtext = ''`, native since nvim 0.10
+> - `~ set_snacks_transparent()` — `~/dotfiles/nvim/init.lua` — moved into a `ColorScheme` autocmd so `:ToggleBackground` can't wipe it
+> - `~ nvim-treesitter spec` — `~/dotfiles/nvim/init.lua` — `branch = 'master'`; holding action, see the divergence note
+> - `~ fold_at_enclosing_function()` — `~/dotfiles/nvim/lua/keymaps.lua` — `zf`/`zF` guard `foldlevel` instead of throwing `E490`
+
 ### [render-markdown-code-block-background.md](plans/completed/render-markdown-code-block-background.md)
-`~/dotfiles/nvim/lua/custom/plugins/markdown.lua` · 2026-07-12
+`~/dotfiles/nvim/lua/custom/plugins/markdown.lua` · 2026-07-12 · **premise superseded 2026-08-11** (fix still ships)
 > Fenced code blocks rendered as hard-to-read grey boxes after the Solarized ANSI-16
 > passthrough switch. Root cause: render-markdown links its code fill `RenderMarkdownCode`
 > → `ColorColumn` → Solarized `base02`, which in cterm-only mode is just the canonical
@@ -78,7 +104,7 @@ When a plan is added, copied, moved, renamed, or deleted:
 > - `~ lua/custom/plugins/markdown.lua` — `~/dotfiles/nvim/` — bare spec gains `opts = { code = { disable_background = true } }` (default was `{ 'diff' }`)
 
 ### [draft-prose-highlighting.md](plans/completed/draft-prose-highlighting.md)
-`~/dotfiles/nvim/init.lua` · 2026-05-18
+`~/dotfiles/nvim/init.lua` · 2026-05-18 · **SUPERSEDED 2026-08-11 — feature deleted**; the four failed-approach investigations and the Vim-regex/`matchadd` gotchas are still the value here
 > Backtick-delimited draft-prose regions get a background-only tint via `matchadd`, so
 > free-form design notes iterated on inline with real code don't blend in. Landed after
 > three other approaches failed (LSP diagnostic override, treesitter `ERROR`-node query,

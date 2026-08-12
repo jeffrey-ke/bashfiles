@@ -1,5 +1,24 @@
 # Draft prose highlighting in nvim
 
+> **SUPERSEDED 2026-08-11 — this feature no longer exists.** `DraftProse`,
+> `:ToggleProse`, `<leader>tp` and both `matchadd` patterns were deleted with the
+> rest of the cterm-only highlight layer; see
+> [nvim-cterm-highlight-layer-removal.md](nvim-cterm-highlight-layer-removal.md).
+> `<leader>tp` now opens toggleterm's tab terminal, which this mapping had been
+> silently shadowing.
+>
+> Note this doc had already drifted from the code twice over. It records the final
+> highlight as `bg = '#4a2a3a'` **and** `ctermbg = 53` "so it works in either
+> mode" — but the ANSI-16 pass (`7d43589`) later rewrote it to
+> `{ ctermbg = 3, ctermfg = 8, bold = true }`, dropping the gui color entirely.
+> Once `termguicolors` was flipped on, that made it invisible.
+>
+> Still true and worth keeping: the four **"What didn't work"** investigations
+> (treesitter recovers from ERROR nodes, so no ERROR-based approach can find
+> draft prose), and every item under **"Bugs hit along the way"** — especially
+> that `\n` in a Vim regex character class means the letter *n*, and that
+> `matchadd` is per-window.
+
 ## Goal
 
 Make free-form design notes / draft prose embedded in code pop visually so it
