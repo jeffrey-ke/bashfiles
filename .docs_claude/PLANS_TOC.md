@@ -84,6 +84,7 @@ When a plan is added, copied, moved, renamed, or deleted:
 > - `- leader WinSeparator flash` — `~/dotfiles/nvim/init.lua` — `vim.on_key` namespace `leader-winsep-flash`
 > - `- custom_foldtext()` — `~/dotfiles/nvim/init.lua` — ~50 lines → `vim.opt.foldtext = ''`, native since nvim 0.10
 > - `~ set_snacks_transparent()` — `~/dotfiles/nvim/init.lua` — moved into a `ColorScheme` autocmd so `:ToggleBackground` can't wipe it
+> - `+ set_tabline_modified()` — `~/dotfiles/nvim/init.lua` — `[+]` badge was referenced but undefined; now inverts each cell's own fg/bg (`TabLineModified` / `TabLineSelModified`) so it reads on both the grey and teal cells with no hardcoded color
 > - `~ nvim-treesitter spec` — `~/dotfiles/nvim/init.lua` — `branch = 'master'`; holding action, see the divergence note
 > - `~ fold_at_enclosing_function()` — `~/dotfiles/nvim/lua/keymaps.lua` — `zf`/`zF` guard `foldlevel` instead of throwing `E490`
 

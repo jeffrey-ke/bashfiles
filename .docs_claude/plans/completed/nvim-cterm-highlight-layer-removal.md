@@ -1,7 +1,7 @@
 # Delete nvim's cterm-only highlight layer; let the colorscheme own every group
 
 **Status:** Shipped 2026-08-11 on the `nvim` submodule (`strip-ui-additions` →
-`master`, commits `79e633b`, `9176ea8`, `cfbe356`).
+`master`, commits `79e633b`, `9176ea8`, `cfbe356`, then `5dbae21`).
 
 ## Context
 
@@ -122,6 +122,35 @@ instead of throwing. The guard is on the *fold*, not on the node being nil: with
 the cursor in a class body but outside any method there is no function to jump
 to, yet the enclosing class fold is a fine target and `za` should still toggle it.
 
+### 4. Make the `[+]` modified badge visible (`5dbae21`)
+
+`TabLineModified` was referenced by `custom_tabline()` but defined nowhere, so
+the badge rendered as plain text. It had been left alone because no single accent
+color works: `TabLine` is a light-grey cell with **no fg at all** (it inherits
+Normal), while `TabLineSel` is teal (`fg=#dfdebd bg=#719899`) — a red that reads
+on the grey goes muddy on the teal.
+
+The badge therefore inverts whichever cell it sits in — `fg = base.bg`,
+`bg = base.fg`, bold, with `Normal` filling in `TabLine`'s missing fg. Contrast
+is guaranteed in either state because it is the cell's own pair swapped, and
+nothing needs maintenance when the colorscheme changes:
+
+```
+TabLineModified     fg=#d9d9d9 bg=#616161 bold   (light-on-dark grey chip)
+TabLineSelModified  fg=#719899 bg=#dfdebd bold   (teal-on-pale chip)
+```
+
+This is the one group this config still sets, and it hardcodes no color. It lives
+in a `ColorScheme` autocmd, and sets cterm values *alongside* the gui ones — the
+bug this plan removed was being cterm-**only**, not setting cterm at all.
+
+Two `custom_tabline()` bugs fixed with it: the badge now switches back to the
+cell group afterwards, so the cell's trailing space is no longer left in the
+badge highlight (ragged right edge), and the separating space moved inside the
+modified branch so unmodified tabs don't gain a second trailing space. Verified
+` ht.py `, ` ht.py [+] `, ` ht.py  f.lua [+] `, with the badge picking the
+inactive-cell variant correctly.
+
 ## Verification
 
 nvim 0.12.4. Every previously-blanked group resolves to seoul256's gui colors;
@@ -141,8 +170,6 @@ none missing, no clean candidates. Just restart nvim.
 - Nothing was folded on open and still isn't: `foldlevelstart = 99` opens every
   fold. `foldlevelstart = 2` would open files with methods collapsed. Left alone
   as a preference, not a fix.
-- `TabLineModified` is referenced by the tabline function but defined nowhere, so
-  `[+]` renders as plain text. Giving it a real gui color is a taste call.
 - `E108: No such variable: "s:style"` appears in `:messages` from seoul256's own
   `silent! unlet` (`colors/seoul256.vim:142`). Pre-existing, cosmetic, upstream.
 - The treesitter migration and the upstream-divergence question are both open;
