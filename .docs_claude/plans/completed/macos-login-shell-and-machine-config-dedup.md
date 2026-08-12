@@ -107,3 +107,13 @@ touched files.
   line is the only thing making zoxide work on those nodes.
 - `machines/jeffpro/` (no `.sh`, so `source-machine.sh`'s glob never sees it) still holds
   `obsidian_zsh`, which hardcodes Intel-brew `/usr/local/bin/tmux`.
+- `fresh` (re-sourcing `.bashrc`) inflates `PROMPT_COMMAND` every time: `.bash_prompt`
+  guards `_vim_tag_post`'s *body* but not the append, and bash-git-prompt's
+  `setLastCommandState` duplicates the same way. After two re-sources:
+  `setLastCommandState;history -a; setLastCommandState;setGitPrompt;_vim_tag_post;__zoxide_hook;_vim_tag_post;_vim_tag_post`.
+  `__zoxide_hook` stays single because zoxide's init checks for itself first — the pattern
+  this plan's own `history -a` hook and any fix here should follow.
+- `source-machine.sh` runs 8 subprocesses (`hostname -s` + one `basename` per machine
+  file) to resolve a host that often matches nothing; all of it is pure-bash expressible.
+  Costly on a machine that authorizes every exec — see
+  [macos-shell-startup-latency.md](../../notes/macos-shell-startup-latency.md).

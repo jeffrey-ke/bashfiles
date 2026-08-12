@@ -106,6 +106,19 @@ When a plan is added, copied, moved, renamed, or deleted:
    (`git log --diff-filter=A --follow --format=%as -- <path> | tail -1`; an uncommitted
    plan uses today's date). Re-sort most-recent first.
 
+## Notes
+
+`.docs_claude/notes/` holds findings that aren't a plan for a change — root causes,
+upstream limitations, and environment behavior that would otherwise be re-derived from
+scratch. They are deliberately **not** in `PLANS_TOC.md` (that indexes plans only), so
+check this directory directly before re-investigating a "why is X slow / broken" question:
+
+| Note | Answers |
+|------|---------|
+| `macos-shell-startup-latency.md` | Why new terminal tabs take seconds on a Mac with an exec-authorizing security agent, and why it is not the sourced files |
+| `tmux-popup-clipboard-ssh.md` | Why OSC 52 copy doesn't work inside `display-popup` |
+| `grab-macos-support-roadmap.md` | The four macOS sub-projects for `grab`/dotfiles and what's still open |
+
 ## Adding a New Skill
 
 ```
