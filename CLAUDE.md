@@ -78,6 +78,12 @@ deliberately machine-local and do not transfer.
 
 `Ctrl-Space` is the prefix. Pane navigation uses `hjkl`; `HJKL` swaps panes. The `trun` function (in `.functions.sh`) runs a shell function inside a new tmux window so it survives terminal close.
 
+`prefix + X` forks the Claude Code conversation running in the current pane into a
+sibling pane (`prefix + C-x` into a new window), via `tmux-fork-claude.sh`. It resolves
+pane → session ID by looking up `~/.claude/sessions/<pid>.json`, then delegates to the
+`fork-conversation-pane` skill's `fork-pane.sh`, so it is the same fork the skill
+performs with none of the model round trip. See the note below for the traps.
+
 ## Plans
 
 [`.docs_claude/PLANS_TOC.md`](.docs_claude/PLANS_TOC.md) is the topic-organized index of
@@ -119,6 +125,7 @@ check this directory directly before re-investigating a "why is X slow / broken"
 | `tmux-popup-clipboard-ssh.md` | Why OSC 52 copy doesn't work inside `display-popup` |
 | `grab-macos-support-roadmap.md` | The four macOS sub-projects for `grab`/dotfiles and what's still open |
 | `nvim-kickstart-upstream-divergence.md` | Why `nvim/` can't be merged from upstream kickstart any more, why nvim-treesitter is pinned to `master`, and the three ways out |
+| `claude-session-tmux-pane-lookup.md` | How a tmux pane resolves to the Claude session running in it (`~/.claude/sessions/<pid>.json`), and the four traps: `sdk-cli` one-shots, no `TMUX_PANE` under `run-shell`, `read` exiting 1 on the missing trailing newline, no `/proc` on macOS |
 
 ## Adding a New Skill
 

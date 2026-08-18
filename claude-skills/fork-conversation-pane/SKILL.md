@@ -14,6 +14,21 @@ turn**. The two sessions then diverge independently.
 Run the bundled script — it encodes every guard below. Do not hand-roll the
 `tmux split-window` line unless the script's options genuinely don't cover the case.
 
+## Faster: the `prefix + X` key binding
+
+If the user just wants a plain fork of the pane they are sitting in, they do not need
+this skill at all — `prefix + X` (new pane) and `prefix + C-x` (new window) run
+`~/dotfiles/tmux-fork-claude.sh`, which resolves pane → session ID from
+`~/.claude/sessions/<pid>.json` and calls the same `fork-pane.sh`. That skips the model
+round trip entirely, which is the only slow part. **Say so** when the user is asking for
+a bare fork repeatedly.
+
+Reach for this skill instead when the fork needs something the key can't express: a seed
+prompt, a worktree (`-C`), a pinned model (`-m`), or forking a session other than the
+one in this pane. The traps behind that lookup (headless `sdk-cli` sessions claiming
+the same pane, `run-shell` not setting `TMUX_PANE`) are in
+`.docs_claude/notes/claude-session-tmux-pane-lookup.md` in the dotfiles repo.
+
 ## Core Recipe
 
 ```bash
@@ -32,7 +47,14 @@ With a seed prompt so the branch starts working immediately:
 
 Options: `-v` vertical (stacked) instead of side-by-side · `-s SIZE` (`40%` or `80`) ·
 `-d` leave focus in the current pane · `-m MODEL` pin the fork's model ·
-`-W` new window instead of a pane · `-S ID` fork a session other than this one.
+`-W` new window instead of a pane · `-S ID` fork a session other than this one ·
+`-n NAME` override the derived display name · `-A` suppress the fork notice.
+
+The script gives the fork the two things in-app `/branch` gives it and bare
+`--resume --fork-session` does not: a display name `"<parent> ⑂ <seed>"` (`⑂` is U+2442,
+the glyph `/branch` uses) and an `--append-system-prompt` telling it the parent is still
+live in this checkout, so it doesn't edit files out from under it. The notice is emitted
+only when the fork shares the parent's directory — with `-C` it is already isolated.
 
 Report the new pane ID to the user, and tell them `tmux kill-pane -t %NN` undoes it.
 
@@ -45,7 +67,10 @@ Every one of them is already handled by the script.
    Bash tool's environment. Do *not* parse the scratchpad path and do *not* take the
    newest `*.jsonl` in `~/.claude/projects/<mangled-cwd>/` — those are fallbacks only,
    and "newest transcript" silently picks the wrong session when two Claudes share a
-   directory (common here — `tmux list-panes -a` routinely shows several).
+   directory (common here — `tmux list-panes -a` routinely shows several). When the env
+   var is genuinely unavailable — e.g. a tmux key binding, which gets no Claude
+   environment at all — the exact answer is `~/.claude/sessions/<pid>.json`, keyed by
+   pid and carrying both `sessionId` and `"tmux":"<sess>:@<win>.%<pane>"`.
 2. **Resolve the window with `-t "$TMUX_PANE"`.** A bare
    `tmux display-message -p '#{session_name}:#{window_index}'` reports the *attached
    client's* pane, which is only coincidentally the pane Claude is running in. When
@@ -62,13 +87,15 @@ Every one of them is already handled by the script.
 7. **The branch point is the last flushed transcript entry** — the turn currently in
    flight is *not* in the fork. Spawn the fork on the turn whose state you want
    branched, and never promise the fork can see something decided moments ago.
-8. **The fork's transcript has no pointer back to its parent.** It is written as a
-   full copy of all entries rewritten under a fresh UUID, with no `parentSessionId`
-   field, so nothing on disk records the lineage. The pane title cannot carry it
-   either — Claude Code overwrites the title with its own conversation summary
-   seconds after startup. The script's printed `forked:` line is the only durable
-   record, so **relay it to the user** when spawning more than one branch. With `-W`
-   the window name (`fork-<parent-short>`) does survive.
+8. **A CLI fork has no pointer back to its parent.** The transcript is a full copy of
+   all entries rewritten under a fresh UUID, with no `parentSessionId` field. In-app
+   `/branch` *does* record lineage (`forkParentSessionId`, `forkBoundaryAt`) — but in
+   the **job registry**, read only when `CLAUDE_JOB_DIR` is set, so a pane fork cannot
+   have it and never appears in the roster as a branch. The pane title can't carry it
+   either: Claude Code overwrites the title with its own conversation summary seconds
+   after startup. The `--name` the script passes survives (it shows in the fork's prompt
+   box), and the printed `forked:` line is the durable record — **relay it to the user**
+   when spawning more than one branch. With `-W` the window name also survives.
 9. **The fork's transcript file does not exist until its first message.** Verifying a
    fork by looking for a new `*.jsonl` gives a false negative on an idle fork —
    verify with `tmux capture-pane -p -t <pane>` instead.

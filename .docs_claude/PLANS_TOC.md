@@ -26,12 +26,14 @@ When a plan is added, copied, moved, renamed, or deleted:
 
 1. Nvim: Editing, Git & Highlighting · 2. Nvim: Standalone Search Tools ·
 3. Tmux: Popups & Notifications · 4. Shell: Navigation & Machine Config ·
-5. Shell: Tooling & Bootstrap · 6. Shell: Git Helpers
+5. Shell: Tooling & Bootstrap · 6. Shell: Git Helpers ·
+7. Claude Code Integration
 
 ---
 
 ## Chronological index
 
+- **2026-08-18** — [tmux-prefix-x-fork-claude-conversation.md](plans/completed/tmux-prefix-x-fork-claude-conversation.md) `.tmux.conf`, `tmux-fork-claude.sh`, `claude-skills/fork-conversation-pane/`
 - **2026-08-11** — [nvim-cterm-highlight-layer-removal.md](plans/completed/nvim-cterm-highlight-layer-removal.md) `nvim/init.lua`, `nvim/lua/keymaps.lua`
 - **2026-08-11** — [macos-login-shell-and-machine-config-dedup.md](plans/completed/macos-login-shell-and-machine-config-dedup.md) `run.sh`, `.bash_tools`, `machines/`
 - **2026-07-15** — [fzf-ctrl-t-directory-navigation.md](plans/completed/fzf-ctrl-t-directory-navigation.md) `.bash_tools`
@@ -524,3 +526,25 @@ When a plan is added, copied, moved, renamed, or deleted:
 >
 > **Key changes:**
 > - `+ fgc()` — `~/dotfiles/.functions.sh`, appended after `gpu2()`
+
+## 7. Claude Code Integration
+
+### [tmux-prefix-x-fork-claude-conversation.md](plans/completed/tmux-prefix-x-fork-claude-conversation.md)
+`~/dotfiles/.tmux.conf`, `~/dotfiles/tmux-fork-claude.sh`, `~/dotfiles/claude-skills/fork-conversation-pane/` · 2026-08-18
+> `prefix X` forks the Claude Code conversation running in the current pane into a
+> sibling pane (`prefix C-x` into a new window), turning the `fork-conversation-pane`
+> skill into a key binding so the fork costs no model round trip. The enabling discovery
+> is that Claude Code already publishes the mapping in `~/.claude/sessions/<pid>.json`
+> (`sessionId` plus `"tmux":"<sess>:@<win>.%<pane>"`), so pane → conversation is a pure
+> lookup — no pane renaming (Claude overwrites the title anyway) and no `SessionStart`
+> hook. The resolver delegates to the skill's `fork-pane.sh` so the guards can't drift.
+> A first cut produced an unnamed fork that didn't know it was one; reading the 2.1.235
+> bundle showed in-app `/branch` adds `--name "<parent> ⑂ …"` and an
+> `--append-system-prompt` worktree-collision notice, both now reproduced, while its
+> job-registry lineage stays out of reach for an interactive pane.
+>
+> **Key changes:**
+> - `+ tmux-fork-claude.sh` — pane → session via `~/.claude/sessions/<pid>.json`, filtered to `entrypoint:"cli"`, pid verified against `procStart`, `--resolve` for debugging
+> - `~ bind-key X` / `bind-key C-x` — `.tmux.conf` — both previously unbound; `#{pane_id}` passed as an argument because `run-shell` sets no `TMUX_PANE`
+> - `~ fork-pane.sh` — `--name`/`--append-system-prompt` parity with `/branch`, new `-n`/`-A`
+> - `+ .docs_claude/notes/claude-session-tmux-pane-lookup.md` — the lookup and its traps (`sdk-cli` one-shots stealing the pane, `read` exiting 1 on the missing trailing newline — fatal under `set -e`, no `/proc` on macOS)
