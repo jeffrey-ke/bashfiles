@@ -44,6 +44,46 @@ set foldmethod=indent
 set foldnestmax=6
 " words now wrap.
 set linebreak
+" hard line-length limit: typing past column 80 wraps to the next line
+set textwidth=80
+" 't' auto-wraps plain text, 'c' auto-wraps comments, at 'textwidth'.
+" Re-applied per buffer because ftplugins (python, gitcommit, ...) reset both.
+set formatoptions+=tc
+augroup TextWidth
+    autocmd!
+    autocmd FileType * setlocal textwidth=80 formatoptions+=tc
+augroup END
+
+" ── spell checking ──────────────────────────────────────────────────────────
+" 'en_us' is a *region* inside the bundled en.utf-8.spl (vim 9.1 and nvim both
+" ship it), so nothing is ever downloaded. British spellings are then flagged
+" as 'rare' (SpellRare) rather than wrong.
+set spelllang=en_us
+" Words added with zg go in the repo so they travel between machines; vim's
+" default (~/.vim/spell/, or the nvim config dir) is not version-controlled.
+set spellfile=~/dotfiles/spell/en.utf-8.add
+" Check camelCase/snake_case parts separately instead of reading an identifier
+" as one long typo. silent! because older vim lacks the 'camel' value.
+silent! set spelloptions+=camel
+" Prose filetypes only — a global 'spell' underlines every identifier in code.
+augroup Spell
+    autocmd!
+    autocmd FileType tex,plaintex,markdown,text,gitcommit,rst setlocal spell
+    " Journal entries are named by date (~/journal/aug18) with no extension, so
+    " vim gives them no filetype and the FileType rule above never fires; match
+    " on path instead (autocmd patterns expand '~'). The second 'spellfile'
+    " entry lets 2zg file a word with the journal (names, jargon) while plain zg
+    " still writes to the dotfiles list. Words in both files count as good; the
+    " count only picks which file gets written.
+    autocmd BufRead,BufNewFile ~/journal/* setlocal spell spellfile+=~/journal/.spell.add
+augroup END
+" For a one-off prose buffer vim didn't recognize: toggle spell on this buffer.
+" ('1z=' in the mapping below errors with E756 when 'spell' is off.)
+nnoremap <Space>s :setlocal spell!<CR>:setlocal spell?<CR>
+" Fix the previous typo without leaving insert mode (castel.dev/post/lecture-notes-1):
+" [s jumps back to it, 1z= takes the first suggestion, `]a returns to where you
+" were typing. The <c-g>u breaks make the whole correction a single undo.
+inoremap <C-l> <c-g>u<Esc>[s1z=`]a<c-g>u
 " terminal keymap timeout
 set ttimeoutlen=50
 " ???
