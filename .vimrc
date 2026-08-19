@@ -65,6 +65,15 @@ set spellfile=~/dotfiles/spell/en.utf-8.add
 " Check camelCase/snake_case parts separately instead of reading an identifier
 " as one long typo. silent! because older vim lacks the 'camel' value.
 silent! set spelloptions+=camel
+" vim only reads the compiled .add.spl beside the list, and spell/.gitignore
+" excludes *.spl as a binary artifact. zg recompiles on add, but a fresh clone has
+" no .add.spl and a pull from another machine leaves the old one stale -- either
+" way every tracked word reads as a typo. getftime() is -1 when the file is
+" missing, so one comparison covers both cases.
+let s:spell_add = expand('~/dotfiles/spell/en.utf-8.add')
+if filereadable(s:spell_add) && getftime(s:spell_add) > getftime(s:spell_add . '.spl')
+  silent! execute 'mkspell! ' . fnameescape(s:spell_add)
+endif
 " Prose filetypes only — a global 'spell' underlines every identifier in code.
 augroup Spell
     autocmd!
