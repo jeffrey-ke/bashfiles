@@ -12,36 +12,50 @@ case ":$PATH:" in *":$HOME/.local/bin:"*) ;; *) export PATH="$HOME/.local/bin:$P
 # checks; guarded, so it does nothing on Linux.
 [ -x /opt/homebrew/bin/brew ] && eval "$(/opt/homebrew/bin/brew shellenv)"
 
+# Source a directory's .aliases on the way into it, for every component of the
+# new path. Every navigation entry point calls this — zoxide's `cd` and `cdi`,
+# yazi's `y` — since each lands somewhere new by a different route, and only
+# `cd` used to do it. Lives at top level, not in the zoxide block below, so `y`
+# still gets it on a machine without zoxide installed.
+# `local _CD_SOURCING` is visible to callees, so an .aliases that itself calls
+# cd walks no further.
+_source_path_aliases() {
+	[[ -n "$_CD_SOURCING" ]] && return 0
+	local _CD_SOURCING=1
+	local accumulator="" remaining="${PWD#/}"
+	while [[ -n "$remaining" ]]; do
+		if [[ "$remaining" == */* ]]; then
+			accumulator+="/${remaining%%/*}"
+			remaining="${remaining#*/}"
+		else
+			accumulator+="/$remaining"
+			remaining=""
+		fi
+		if [[ -f "$accumulator/.aliases" ]]; then
+			echo "Sourcing $accumulator/.aliases:"
+			cat "$accumulator/.aliases"
+			source "$accumulator/.aliases"
+		fi
+	done
+	return 0
+}
+
 if command -v zoxide >/dev/null 2>&1; then
 	eval "$(zoxide init --cmd cd bash)"
 
-	# Source a directory's .aliases on the way into it, for every component of the
-	# new path. Wraps zoxide's own `cd`, so it has to live here, after the eval
-	# above: .bashrc sources .functions.sh *before* .bash_tools, so defining this
-	# there — the intuitive home for a shell function — would be silently clobbered
-	# by zoxide's init. That ordering is why this lived in a machine file instead.
-	# `local _CD_SOURCING` is visible to callees, so an .aliases that itself calls
-	# cd walks no further.
+	# These wrap zoxide's own `cd`/`cdi`, so they have to live here, after the
+	# eval above: .bashrc sources .functions.sh *before* .bash_tools, so
+	# defining them there — the intuitive home for a shell function — would be
+	# silently clobbered by zoxide's init. That ordering is why this lived in a
+	# machine file instead.
 	cd() {
 		__zoxide_z "$@" || return $?
-		[[ -n "$_CD_SOURCING" ]] && return 0
-		local _CD_SOURCING=1
-		local accumulator="" remaining="${PWD#/}"
-		while [[ -n "$remaining" ]]; do
-			if [[ "$remaining" == */* ]]; then
-				accumulator+="/${remaining%%/*}"
-				remaining="${remaining#*/}"
-			else
-				accumulator+="/$remaining"
-				remaining=""
-			fi
-			if [[ -f "$accumulator/.aliases" ]]; then
-				echo "Sourcing $accumulator/.aliases:"
-				cat "$accumulator/.aliases"
-				source "$accumulator/.aliases"
-			fi
-		done
-		return 0
+		_source_path_aliases
+	}
+
+	cdi() {
+		__zoxide_zi "$@" || return $?
+		_source_path_aliases
 	}
 fi
 
@@ -155,7 +169,7 @@ if command -v yazi >/dev/null 2>&1; then
 		tmp="$(mktemp -t "yazi-cwd.XXXXXX")"
 		yazi "$@" --cwd-file="$tmp"
 		if cwd="$(command cat -- "$tmp")" && [ -n "$cwd" ] && [ "$cwd" != "$PWD" ]; then
-			builtin cd -- "$cwd"
+			builtin cd -- "$cwd" && _source_path_aliases
 		fi
 		rm -f -- "$tmp"
 	}

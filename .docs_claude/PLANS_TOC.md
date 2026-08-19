@@ -33,6 +33,7 @@ When a plan is added, copied, moved, renamed, or deleted:
 
 ## Chronological index
 
+- **2026-08-19** — [dir-aliases-every-nav-entry-point.md](plans/completed/dir-aliases-every-nav-entry-point.md) `.bash_tools`
 - **2026-08-18** — [tmux-prefix-x-fork-claude-conversation.md](plans/completed/tmux-prefix-x-fork-claude-conversation.md) `.tmux.conf`, `tmux-fork-claude.sh`, `claude-skills/fork-conversation-pane/`
 - **2026-08-11** — [nvim-cterm-highlight-layer-removal.md](plans/completed/nvim-cterm-highlight-layer-removal.md) `nvim/init.lua`, `nvim/lua/keymaps.lua`
 - **2026-08-11** — [macos-login-shell-and-machine-config-dedup.md](plans/completed/macos-login-shell-and-machine-config-dedup.md) `run.sh`, `.bash_tools`, `machines/`
@@ -268,6 +269,28 @@ When a plan is added, copied, moved, renamed, or deleted:
 > - _planned, not shipped:_ `CCEXPLAIN` `PROMPT_COMMAND` marker in `run.sh`/`.bashrc`
 
 ## 4. Shell: Navigation & Machine Config
+
+### [dir-aliases-every-nav-entry-point.md](plans/completed/dir-aliases-every-nav-entry-point.md)
+`~/dotfiles/.bash_tools` · 2026-08-19
+> The per-directory `.aliases` mechanism only ever wrapped `cd`, so every other way this
+> config lands in a new directory silently skipped it: `cdi` (zoxide's fzf picker — its
+> `zoxide init` sibling, never redefined, so still stock) and `y` (the yazi cwd-on-exit
+> wrapper, whose `builtin cd` is verbatim from upstream's snippet rather than a deliberate
+> opt-out). Hoisted the path-walking loop into `_source_path_aliases` and called it from
+> all three. The helper sits at top level, not in the zoxide block, because `y` needs it
+> on a machine with yazi but no zoxide. The `_CD_SOURCING` re-entrancy guard survives the
+> move on `local`'s dynamic scoping — the `source` now happens inside the helper, so a
+> sourced file's own `cd` still sees the caller's flag — which is the one thing here that
+> could have broken quietly, hence a dedicated fixture test. Surfaced by writing the
+> mechanism's first real consumer, an `rf`/`rf_dry` wrapper over a long `bazel run` in the
+> Nuro monorepo; that also pinned down that any test of this must be interactive, since
+> non-interactive bash never loads `.bashrc` and so has `cd` as a plain builtin.
+>
+> **Key changes:**
+> - `+ _source_path_aliases()` — `~/dotfiles/.bash_tools` — the walk loop, extracted from `cd` to top level so it is reachable without zoxide
+> - `~ cd()` — `~/dotfiles/.bash_tools` — reduced to `__zoxide_z "$@" || return $?; _source_path_aliases`
+> - `+ cdi()` — `~/dotfiles/.bash_tools` — same shape over `__zoxide_zi`, overriding the stock definition from `zoxide init`
+> - `~ y()` — `~/dotfiles/.bash_tools` — `builtin cd -- "$cwd"` → `builtin cd -- "$cwd" && _source_path_aliases`
 
 ### [fzf-ctrl-t-directory-navigation.md](plans/completed/fzf-ctrl-t-directory-navigation.md)
 `~/dotfiles/.bash_tools` · 2026-07-15
