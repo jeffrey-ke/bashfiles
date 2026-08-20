@@ -77,3 +77,5 @@ alias ot='obgrab tesu'
 alias lsla='ls -la'
 # Was hand-copied into four separate machines/ files, none of which needed to own it.
 alias fresh="source ~/.bashrc"
+alias lg='lazygit'
+alias vd='uv run --with visidata vd'

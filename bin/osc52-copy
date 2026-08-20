@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+# osc52-copy -- copy stdin into the clipboard of whatever terminal is attached,
+# across ssh, using the OSC 52 escape sequence.
+#
+# For sessions with no tmux to do it for you: inside tmux prefer
+# `tmux load-buffer -w -`, which emits the same sequence to tmux's client without an
+# escape having to survive passthrough. Needs a terminal that honours OSC 52 writes
+# (iTerm2: Settings > General > Selection > "Applications in terminal may access
+# clipboard"; Ghostty and kitty do by default).
+#
+# Usage: some-command | osc52-copy
+set -euo pipefail
+
+esc="\033]52;c;$(base64 | tr -d '\n')\a"
+
+# tmux drops escapes it doesn't recognise unless they are wrapped in a DCS
+# passthrough, with the inner ESC doubled.
+if [ -n "${TMUX:-}" ]; then
+	esc="\033Ptmux;\033${esc}\033\\"
+fi
+
+printf '%b' "$esc" >/dev/tty

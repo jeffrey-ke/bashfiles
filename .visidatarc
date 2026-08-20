@@ -1,0 +1,286 @@
+# VisiData: put the clipboard on the machine sitting in front of the terminal, not on
+# whatever host vd happens to be running on.
+#
+# Stock clipboard_copy_cmd on Linux is `xclip -selection clipboard -filter`, which over
+# ssh writes the *remote* desktop's X clipboard -- and a headless ssh login has neither
+# xclip nor $DISPLAY, so the syscopy commands just raise FileNotFoundError. Both
+# replacements below go over OSC 52, which is location-independent: the terminal
+# emulator does the copying, so it lands on the laptop.
+#
+# Inside tmux, `load-buffer -w -` fills the tmux buffer and lets *tmux* emit the escape
+# to its attached client -- the same path `set -s set-clipboard on` (.tmux.conf) already
+# gives copy-mode yanks and nvim's OSC 52 provider, and nothing has to survive DCS
+# passthrough. Outside tmux, bin/osc52-copy writes the sequence to /dev/tty itself.
+#
+# Paste reads back out of the tmux buffer: a terminal will let an app *write* the
+# clipboard over OSC 52 but essentially never read it, so the buffer is the only thing
+# this side can query. cmd-V into an editable cell is unaffected -- that is ordinary
+# keyboard input, not a clipboard read.
+import os
+
+if os.environ.get('TMUX'):
+    options.clipboard_copy_cmd = 'tmux load-buffer -w -'
+    options.clipboard_paste_cmd = 'tmux show-buffer'
+else:
+    options.clipboard_copy_cmd = 'osc52-copy'
+
+# ---------------------------------------------------------------------------
+# vim-ish bindings. VisiData is already close for movement (gg/G/gh/gl top,
+# bottom, leftmost, rightmost; Ctrl+F/Ctrl+B page), so this only fills the gaps.
+#
+# Two facts govern everything below (visidata/settings.py, visidata/mainloop.py):
+#   * `Sheet` IS `TableSheet` (sheets.py:1092) and bindings are keyed by class
+#     NAME, so addCommand on Sheet REPLACES the stock binding in place -- and
+#     does so silently, because addCommand calls module-level vd.bindkey, which
+#     never warns. Only Sheet.bindkey warns. Every override here is deliberate.
+#   * A key that is both bound and a prefix can never fire as a prefix:
+#     mainloop.py:242 checks bindkeys before mainloop.py:248 checks allPrefixes.
+#     So `y` cannot be a prefix for `yy` while `y` alone still yanks a cell.
+#     Hence the state machine below instead of a prefix.
+# ---------------------------------------------------------------------------
+import csv, io
+
+@Sheet.api
+def rowAsLine(sheet, row):
+    'One csv line for *row* over visibleCols: no header, no CRLF.'
+    # NOT syscopyCells(filetype="csv") -- that saver prepends the column-name row
+    # and terminates CRLF, so a one-row copy pastes as two lines.
+    buf = io.StringIO()
+    csv.writer(buf, lineterminator='').writerow([c.getFullDisplayValue(row) for c in sheet.visibleCols])
+    return buf.getvalue()
+
+# (sheet, row, col) of the last bare y, or None. A second y on that same cell
+# upgrades the copy from cell to row -- VisiData has no doubled-key idiom, and
+# time-based double-tap would make correctness depend on typing speed, so the
+# discriminator is "was the immediately preceding command also this one".
+_ypend = [None]
+
+def _resetYank(sheet, cmd, args, keystrokes):
+    if cmd.longname != 'yank-cell-or-row':
+        _ypend[0] = None
+
+# beforeExecHooks (basesheet.py:6, called at :214) fires before EVERY command, so
+# any keystroke in between breaks the y-y chain. vd.cmdlog would not do: movement
+# commands declare replay=False and never land in it, making `y j y` and `y y`
+# indistinguishable there.
+vd.beforeExecHooks.append(_resetYank)
+
+@Sheet.api
+def yankRows(sheet, rows):
+    sheet.copyRows(rows)                       # internal too, so p/P still paste
+    sheet.syscopyValue('\n'.join(sheet.rowAsLine(r) for r in rows))
+    vd.status(f'yanked {len(rows)} row' + ('' if len(rows) == 1 else 's'))
+
+@Sheet.api
+def yankRow(sheet):
+    sheet.yankRows([sheet.cursorRow])
+
+@Sheet.api
+def yankCells(sheet, col, rows):
+    sheet.copyCells(col, rows)
+    sheet.syscopyValue('\n'.join(col.getFullDisplayValue(r) for r in rows))
+    vd.status(f'yanked {len(rows)} cell' + ('' if len(rows) == 1 else 's'))
+
+@Sheet.api
+def yankCellOrRow(sheet):
+    here = (id(sheet), sheet.cursorRowIndex, sheet.cursorVisibleColIndex)
+    if _ypend[0] == here:
+        _ypend[0] = None                       # yyy == yy then a fresh y
+        sheet.yankRow()
+    else:
+        _ypend[0] = here
+        sheet.copyCells(sheet.cursorCol, [sheet.cursorRow])
+        vd.memoValue('clipval', sheet.cursorTypedValue, sheet.cursorDisplay)
+        sheet.syscopyValue(sheet.cursorFullDisplay)
+
+# replaces `y` copy-row and `Y` syscopy-row (clipboard.py:193,217). Both stock
+# longnames still exist and stay reachable from the ':' palette.
+Sheet.addCommand('y', 'yank-cell-or-row', 'yankCellOrRow()', 'copy cell to clipboard; y again copies the whole row')
+Sheet.addCommand('Shift+Y', 'yank-row', 'yankRow()', 'copy current row to clipboard as one csv line')
+
+# the g ("embiggened") twins. Upstream leaves the whole g-family internal-only --
+# gy/gzy never shell out -- and their system counterparts gY/gzY prompt for a
+# filetype and route through a file saver, which prepends a header row. These copy
+# one csv line per selected row, and one bare value per line for a single column.
+Sheet.addCommand('gy', 'yank-selected', 'yankRows(onlySelectedRows)', 'copy selected rows to internal and system clipboard, one csv line each')
+Sheet.addCommand('gzy', 'yank-cells', 'yankCells(cursorCol, onlySelectedRows)', 'copy current column for selected rows to internal and system clipboard, one value per line')
+
+# ':' becomes a vim command line. vd.input(':') takes the LITERAL text typed, with
+# Tab-completion over longnames. Deliberately NOT `exec-longname` (Space), whose
+# Enter accepts the top *fuzzy* match instead -- 'sp' ties five ways there
+# (sp / splitwin-close / splitwin-half / splitwin-input / split-col), resolved only
+# by a stable sort over registry order, so `:sp` could fire splitwin-close.
+#
+# ':' was addcol-split (features/regex.py:138) on TableSheet; it moves to 'g:',
+# which is unbound registry-wide. Bind on BaseSheet *and* TableSheet, since
+# SettingsMgr resolves the most specific class first (settings.py:66-93), and via
+# vd.bindkey rather than BaseSheet.bindkey to skip the "already bound" warning.
+@BaseSheet.api
+def vimCmdline(sheet):
+    longnames = sorted(set(k for (k, obj), v in vd.commands.iter(sheet)))
+    # complete on the vim verbs without their namespace prefix
+    names = sorted(set([k[4:] for k in longnames if k.startswith('vim-')] + longnames))
+    ln = vd.input(':', completer=CompleteKey(names), type='longname')
+    # 'vim-<x>' MUST win over a bare '<x>': getCommand (settings.py:429) chases
+    # keystroke->longname aliases before consulting longnames, so a longname
+    # literally called 'e' is unreachable -- ':e' would resolve the KEYSTROKE e
+    # and run edit-cell. Same trap for 'b' (sidebar-toggle) and 'w'
+    # (addcol-window). Hence the vim- namespace, tried first.
+    for cand in (f'vim-{ln}', ln):
+        if vd.commands._get(cand, obj=sheet):
+            return sheet.execCommand(cand)
+    if sheet.getCommand(ln):
+        return sheet.execCommand(ln)
+    vd.fail(f'not a command: {ln}')
+
+BaseSheet.addCommand(None, 'exec-longname-vim', 'sheet.vimCmdline()', 'vim-style : command line')
+vd.bindkey('g:', 'addcol-split', 'TableSheet')
+vd.bindkey(':', 'exec-longname-vim', 'BaseSheet')
+vd.bindkey(':', 'exec-longname-vim', 'TableSheet')
+
+# Real side-by-side splits. Upstream has none: disp_splitwin_pct is a HEIGHT pct
+# and setWindows() hands both panes x=0 and the full width (mainloop.py:101-103).
+# But each pane is an independent curses subwindow and sheets self-size from
+# _scr.getmaxyx() (basesheet.py:59-66), so re-deriving the two subwindows as
+# left/right is enough -- status bars and mouse hit-testing are scr-relative and
+# keep working. This DOES monkeypatch an undocumented internal: if an upgrade
+# changes setWindows, delete this block and :vs degrades to a stacked split.
+vd.option('disp_vsplit', False, 'split panes side-by-side rather than stacked')
+_orig_setWindows = vd.setWindows
+
+@VisiData.api
+def setWindows(vd, scr, pct=None):
+    if not vd.options.disp_vsplit:
+        return _orig_setWindows(scr, pct)
+    if pct is None:
+        pct = vd.options.disp_splitwin_pct
+    disp_menu = getattr(vd, 'menuRunning', None) or vd.options.disp_menu
+    topmenulines = 1 if disp_menu else 0
+    h, w = scr.getmaxyx()
+    if h == 1:
+        topmenulines = 0
+    n = 0
+    if pct:
+        n = max(4, min(abs(pct)*w//100, w-4))   # n is a COLUMN here, not a line
+    desired = dict(pct=pct, n=n, h=h-topmenulines, w=w, vsplit=True)
+    if vd.scrFull is not scr or vd.windowConfig != desired:
+        if not topmenulines:
+            vd.scrMenu = None
+        elif not vd.scrMenu:
+            vd.scrMenu = vd.subwindow(scr, 0, 0, w, h); vd.scrMenu.keypad(1)
+        # keep upstream's winTop/winBottom <-> win1/win2 pairing, so that
+        # mouse.py's click-to-switch-pane still resolves
+        left = vd.subwindow(scr, 0, topmenulines, n or w, h-topmenulines)
+        right = vd.subwindow(scr, n, topmenulines, w-n, h-topmenulines)
+        left.keypad(1); right.keypad(1)
+        vd.winTop, vd.winBottom = left, right
+        if pct == 0 or abs(pct) >= 100:
+            vd.win1 = vd.subwindow(scr, 0, topmenulines, w, h-topmenulines)
+            vd.win1.keypad(1); vd.win2 = None
+        elif pct > 0:
+            vd.win1, vd.win2 = left, right
+        else:
+            vd.win1, vd.win2 = right, left
+        for vs in vd.sheetstack(1)[0:1]+vd.sheetstack(2)[0:1]:
+            vs.refresh()
+        vd.windowConfig = desired
+        vd.scrFull = scr
+        return True
+
+# splitPane only *moves* a sheet across when a sheet is under this one
+# (splitwin.py:11), so :vs with a single sheet open sets the geometry and still
+# shows one pane -- same as upstream Z. Only ever two panes; there is no tree.
+@BaseSheet.api
+def vimSplit(sheet, pct=50, vertical=False):
+    vd.options.disp_vsplit = vertical
+    sheet.splitPane(pct)
+
+BaseSheet.addCommand(None, 'vim-vs', 'sheet.vimSplit(50, vertical=True)', 'split side-by-side (vim :vs)')
+BaseSheet.addCommand(None, 'vim-vsplit', 'sheet.vimSplit(50, vertical=True)', 'split side-by-side')
+BaseSheet.addCommand(None, 'vim-sp', 'sheet.vimSplit(50, vertical=False)', 'split stacked (vim :sp)')
+BaseSheet.addCommand(None, 'vim-split', 'sheet.vimSplit(50, vertical=False)', 'split stacked')
+BaseSheet.addCommand(None, 'vim-only', 'vd.splitwin_close()', 'close the split (vim :only)')
+# Ctrl+W is a window prefix, as in vim. It CANNOT also be bound directly: a bound
+# key is matched before the prefix table (mainloop.py:242 before :248), so a direct
+# Ctrl+W would make every Ctrl+W<key> unreachable. Ctrl+W is otherwise unbound
+# registry-wide, so nothing is displaced. allPrefixes is a plain list (vdobj.py:28).
+# Tab still swaps panes on its own.
+vd.allPrefixes += ['Ctrl+W']
+
+# With only two panes ever, every direction means "the other pane" -- which is what
+# vim does too whenever exactly two windows straddle that axis.
+for _k in 'hjklw':
+    vd.bindkey(f'Ctrl+W{_k}', 'splitwin-swap', 'BaseSheet')
+vd.bindkey('Ctrl+Wv', 'vim-vs', 'BaseSheet')
+vd.bindkey('Ctrl+Ws', 'vim-sp', 'BaseSheet')
+vd.bindkey('Ctrl+Wc', 'vim-only', 'BaseSheet')
+vd.bindkey('Ctrl+Wo', 'vim-only', 'BaseSheet')
+vd.bindkey('Ctrl+Wx', 'splitwin-swap-pane', 'BaseSheet')   # vim ^Wx, exchange panes
+
+# half-page scroll, the one movement gap vs vim. Ctrl+D was save-cmdlog, which
+# stays on the ':' palette. This is what experimental/vimcompat.py does.
+BaseSheet.unbindkey('Ctrl+D')
+BaseSheet.bindkey('Ctrl+D', 'go-pagedown-half')
+BaseSheet.bindkey('Ctrl+U', 'go-pageup-half')
+
+# vim buffer verbs on the ':' line. Sheets ARE the buffers, but there are two
+# lists: vd.sheets is a STACK (q pops off it) and vd.allSheets is everything
+# opened this session -- the latter is what Alt+1..Alt+0 (jump-sheet-1..10,
+# movement.py:139) index into, so :ls maps to sheets-all, not sheets-stack.
+# Note q is vim's window-close, not :bd -- a popped sheet stays in allSheets and
+# comes back via gU / Alt+N / :b. Only Q (quit-sheet-free) truly wipes it.
+for _alias, _target in [('ls', 'sheets-all'), ('b', 'jump-sheet'),
+                        ('bd', 'quit-sheet-free'), ('q', 'quit-sheet'),
+                        ('qa', 'quit-all'), ('w', 'save-sheet')]:
+    BaseSheet.addCommand(None, f'vim-{_alias}', f'sheet.execCommand("{_target}")', f'vim :{_alias} -> {_target}')
+
+# :bn/:bp have no upstream equivalent at all -- g>/g< only cycle rows of a parent
+# IndexSheet (sqlite tables and the like) and *replace* rather than stack.
+@BaseSheet.api
+def vimBufJump(sheet, delta):
+    sheets = [vs for vs in vd.allSheets if vs.precious]
+    if not sheets:
+        vd.fail('no sheets')
+    i = sheets.index(sheet) if sheet in sheets else -delta
+    vd.push(sheets[(i+delta) % len(sheets)])
+
+BaseSheet.addCommand(None, 'vim-bn', 'sheet.vimBufJump(1)', 'next sheet (vim :bn)')
+BaseSheet.addCommand(None, 'vim-bp', 'sheet.vimBufJump(-1)', 'previous sheet (vim :bp)')
+
+# ':e' with working Tab-completion over paths. Upstream's `o` cannot complete: its
+# inputPath (_open.py:34) builds a TWO-field form (path + "as filetype:") via
+# inputMultiple, which rebinds Tab to next-field (_input.py:521), and editline checks
+# those bindings before the completion handler. A single-field vd.input completes fine.
+# `o` is left stock, since it is the only way to force a filetype.
+#
+# Own completer rather than _open.py's _completeFilename: that one is private, does not
+# expand ~, and returns directories with no trailing '/', so you cannot Tab your way
+# down a tree. This one does both, and hides dotfiles until you type the dot.
+def _completePath(val, state):
+    val = os.path.expanduser(val)
+    i = val.rfind('/')
+    if i < 0:
+        base, partial = '', val
+    elif i == 0:
+        base, partial = '/', val[1:]
+    else:
+        base, partial = val[:i], val[i+1:]
+    try:
+        names = sorted(f for f in os.listdir(base or '.')
+                       if f.startswith(partial) and (partial.startswith('.') or not f.startswith('.')))
+    except OSError:
+        return val
+    if not names:
+        return val
+    full = os.path.join(base, names[state % len(names)])
+    return full + '/' if os.path.isdir(full) else full
+
+@BaseSheet.api
+def vimOpen(sheet):
+    p = vd.input('open: ', type='filename', completer=_completePath).strip()
+    if p:
+        vd.push(vd.openSource(p, create=True))
+
+BaseSheet.addCommand(None, 'vim-e', 'sheet.vimOpen()', 'open file, Tab-completing the path (vim :e)')
+BaseSheet.addCommand(None, 'vim-E', 'vd.push(vd.currentDirSheet)', 'browse the current directory (vim :E)')
+BaseSheet.addCommand(None, 'vim-Ex', 'vd.push(vd.currentDirSheet)', 'browse the current directory')

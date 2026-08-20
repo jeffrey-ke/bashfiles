@@ -11,7 +11,7 @@ git -C "$DOTFILES" submodule update --init --recursive ||
 	echo "warning: submodule init failed (missing SSH key or offline?) — nvim config and commentstrip are unavailable until you re-run it"
 
 # Same name in the repo and in $HOME (modulo the leading dot already present).
-files=(.bash_aliases .functions.sh .bash_prompt .bash_tools .bash_vars .pylintrc .tmux.conf .vimrc .gitconfig)
+files=(.bash_aliases .functions.sh .bash_prompt .bash_tools .bash_vars .pylintrc .tmux.conf .vimrc .gitconfig .visidatarc)
 for f in "${files[@]}"; do
 	ln -sf "$DOTFILES/$f" "$HOME/$f"
 done
@@ -68,7 +68,11 @@ grep -qE "^[^#]*(source|\.)[[:space:]]+[^#]*\.bashrc" "$profile" ||
 
 # Migrate the old inline machine-config block (exact-hostname only) if present.
 sed -i.bak '/MACHINE_CONFIG/d' "$BASHRC" && rm -f "$BASHRC.bak"
-if ! grep -q 'source-machine.sh' "$BASHRC"; then
+# Anchored at a non-comment `source`, like the loop above: a bare substring grep also
+# matches a *comment* that merely names the file — e.g. one left behind to record that
+# some hand-written block moved into machines/ — and then silently never appends the
+# line, leaving the machine config unsourced with nothing to show why.
+if ! grep -qE "^[^#]*(source|\.)[[:space:]]+[^#]*source-machine\.sh" "$BASHRC"; then
 	echo '[ -f "$HOME/dotfiles/source-machine.sh" ] && source "$HOME/dotfiles/source-machine.sh"' >>"$BASHRC"
 fi
 
