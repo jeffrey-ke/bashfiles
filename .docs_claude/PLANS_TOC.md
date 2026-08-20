@@ -25,15 +25,18 @@ When a plan is added, copied, moved, renamed, or deleted:
 ### Topics
 
 1. Nvim: Editing, Git & Highlighting · 2. Nvim: Standalone Search Tools ·
-3. Tmux: Popups & Notifications · 4. Shell: Navigation & Machine Config ·
+3. Tmux: Popups, Notifications & Pane Styling · 4. Shell: Navigation & Machine Config ·
 5. Shell: Tooling & Bootstrap · 6. Shell: Git Helpers ·
-7. Claude Code Integration
+7. Claude Code Integration ·
+8. VisiData: Clipboard & Keybindings
 
 ---
 
 ## Chronological index
 
 - **2026-08-19** — [dir-aliases-every-nav-entry-point.md](plans/completed/dir-aliases-every-nav-entry-point.md) `.bash_tools`
+- **2026-08-19** — [visidata-clipboard-and-vim-keybindings.md](plans/completed/visidata-clipboard-and-vim-keybindings.md) `.visidatarc`, `bin/osc52-copy`
+- **2026-08-18** — [tmux-nvim-inactive-pane-dimming.md](plans/completed/tmux-nvim-inactive-pane-dimming.md) `.tmux.conf`, `nvim/init.lua`
 - **2026-08-18** — [tmux-prefix-x-fork-claude-conversation.md](plans/completed/tmux-prefix-x-fork-claude-conversation.md) `.tmux.conf`, `tmux-fork-claude.sh`, `claude-skills/fork-conversation-pane/`
 - **2026-08-11** — [nvim-cterm-highlight-layer-removal.md](plans/completed/nvim-cterm-highlight-layer-removal.md) `nvim/init.lua`, `nvim/lua/keymaps.lua`
 - **2026-08-11** — [macos-login-shell-and-machine-config-dedup.md](plans/completed/macos-login-shell-and-machine-config-dedup.md) `run.sh`, `.bash_tools`, `machines/`
@@ -64,6 +67,30 @@ When a plan is added, copied, moved, renamed, or deleted:
 ---
 
 ## 1. Nvim: Editing, Git & Highlighting
+
+### [tmux-nvim-inactive-pane-dimming.md](plans/completed/tmux-nvim-inactive-pane-dimming.md)
+`~/dotfiles/.tmux.conf`, `~/dotfiles/nvim/init.lua` · 2026-08-18
+> Three symptoms, and a fourth found on the way: inactive-pane dimming read as a
+> *whitecast*, nvim panes never dimmed, and nvim's cursor/cursorline were invisible.
+> `window-style` can only recolor cells an application left at default fg/bg, so an
+> opaque catppuccin painted nvim out of reach entirely (measured: 0 dim colors emitted
+> for an inactive nvim pane, vs 6+31 with `Normal bg=NONE` — dimming worked back when
+> this config was ANSI-16 Solarized). The dim itself bleached rather than shaded, at
+> 2.5:1. Stock `guicursor` names no highlight group, so nvim never emits OSC 12 and the
+> colorscheme's `Cursor` was dead code — the cursor was Ghostty's, over nvim's own
+> background. And the fourth: tmux answers an OSC 11 background query for an *inactive*
+> pane out of `window-style`, so that color is what auto-theming apps believe the
+> terminal is — a dark dim flipped both nvim and Claude Code into dark mode under a light
+> terminal. Fixed by turning nvim transparent so tmux owns the dim for every pane, and
+> shading within the terminal's own light/dark side. A `FocusLost` namespace dim inside
+> nvim was the rejected alternative.
+>
+> **Key changes:**
+> - `~ set -g window-style` — `~/dotfiles/.tmux.conf` — `fg=colour245,bg=colour253` → `fg=colour242,bg=colour252`; shades instead of bleaching (2.5:1 → 3.5:1), and stays light-side so it doesn't lie to OSC 11 theme detection
+> - `~ catppuccin spec` — `~/dotfiles/nvim/init.lua` — first-ever `require('catppuccin').setup{}`; `transparent_background = true` is what lets tmux's dim reach nvim
+> - `~ catppuccin spec` — `~/dotfiles/nvim/init.lua` — stops assigning `vim.o.background` and loads the flavour-agnostic `catppuccin` (flavour `auto`), so nvim follows the terminal's OSC 11 answer instead of a hardcoded flavour; assigning 'background' at all defeats that detection for the session
+> - `+ custom_highlights` — `~/dotfiles/nvim/init.lua` — `CursorLine` to an unblended surface (catppuccin's is 6/255 from `Normal` in latte), bold `CursorLineNr`, `Cursor`/`lCursor`/`TermCursor` as `fg=base, bg=text`
+> - `~ vim.o.guicursor` — `~/dotfiles/nvim/init.lua` — names `Cursor/lCursor` per mode so nvim emits OSC 12 (tmux advertises `ccolour`, so it reaches Ghostty)
 
 ### [nvim-cterm-highlight-layer-removal.md](plans/completed/nvim-cterm-highlight-layer-removal.md)
 `~/dotfiles/nvim/init.lua`, `nvim/lua/keymaps.lua` · 2026-08-11
@@ -225,7 +252,31 @@ When a plan is added, copied, moved, renamed, or deleted:
 > - `+ bin/grep2qf` — bare-`line:text` → `file:line:text` filter
 > - `+ ~/.local/bin/grep2qf` (symlink)
 
-## 3. Tmux: Popups & Notifications
+## 3. Tmux: Popups, Notifications & Pane Styling
+
+### [tmux-nvim-inactive-pane-dimming.md](plans/completed/tmux-nvim-inactive-pane-dimming.md)
+`~/dotfiles/.tmux.conf`, `~/dotfiles/nvim/init.lua` · 2026-08-18
+> Three symptoms, and a fourth found on the way: inactive-pane dimming read as a
+> *whitecast*, nvim panes never dimmed, and nvim's cursor/cursorline were invisible.
+> `window-style` can only recolor cells an application left at default fg/bg, so an
+> opaque catppuccin painted nvim out of reach entirely (measured: 0 dim colors emitted
+> for an inactive nvim pane, vs 6+31 with `Normal bg=NONE` — dimming worked back when
+> this config was ANSI-16 Solarized). The dim itself bleached rather than shaded, at
+> 2.5:1. Stock `guicursor` names no highlight group, so nvim never emits OSC 12 and the
+> colorscheme's `Cursor` was dead code — the cursor was Ghostty's, over nvim's own
+> background. And the fourth: tmux answers an OSC 11 background query for an *inactive*
+> pane out of `window-style`, so that color is what auto-theming apps believe the
+> terminal is — a dark dim flipped both nvim and Claude Code into dark mode under a light
+> terminal. Fixed by turning nvim transparent so tmux owns the dim for every pane, and
+> shading within the terminal's own light/dark side. A `FocusLost` namespace dim inside
+> nvim was the rejected alternative.
+>
+> **Key changes:**
+> - `~ set -g window-style` — `~/dotfiles/.tmux.conf` — `fg=colour245,bg=colour253` → `fg=colour242,bg=colour252`; shades instead of bleaching (2.5:1 → 3.5:1), and stays light-side so it doesn't lie to OSC 11 theme detection
+> - `~ catppuccin spec` — `~/dotfiles/nvim/init.lua` — first-ever `require('catppuccin').setup{}`; `transparent_background = true` is what lets tmux's dim reach nvim
+> - `~ catppuccin spec` — `~/dotfiles/nvim/init.lua` — stops assigning `vim.o.background` and loads the flavour-agnostic `catppuccin` (flavour `auto`), so nvim follows the terminal's OSC 11 answer instead of a hardcoded flavour; assigning 'background' at all defeats that detection for the session
+> - `+ custom_highlights` — `~/dotfiles/nvim/init.lua` — `CursorLine` to an unblended surface (catppuccin's is 6/255 from `Normal` in latte), bold `CursorLineNr`, `Cursor`/`lCursor`/`TermCursor` as `fg=base, bg=text`
+> - `~ vim.o.guicursor` — `~/dotfiles/nvim/init.lua` — names `Cursor/lCursor` per mode so nvim emits OSC 12 (tmux advertises `ccolour`, so it reaches Ghostty)
 
 ### [tmux-popup-window.md](plans/completed/tmux-popup-window.md)
 `~/dotfiles/.tmux.conf` · 2026-05-17
@@ -564,10 +615,48 @@ When a plan is added, copied, moved, renamed, or deleted:
 > A first cut produced an unnamed fork that didn't know it was one; reading the 2.1.235
 > bundle showed in-app `/branch` adds `--name "<parent> ⑂ …"` and an
 > `--append-system-prompt` worktree-collision notice, both now reproduced, while its
-> job-registry lineage stays out of reach for an interactive pane.
+> job-registry lineage stays out of reach for an interactive pane. A follow-up pass
+> stopped the fork inheriting the parent's orphaned-background-task notifications, by
+> bounding the resume-time orphan scan to messages after the fork boundary.
 >
 > **Key changes:**
 > - `+ tmux-fork-claude.sh` — pane → session via `~/.claude/sessions/<pid>.json`, filtered to `entrypoint:"cli"`, pid verified against `procStart`, `--resolve` for debugging
 > - `~ bind-key X` / `bind-key C-x` — `.tmux.conf` — both previously unbound; `#{pane_id}` passed as an argument because `run-shell` sets no `TMUX_PANE`
 > - `~ fork-pane.sh` — `--name`/`--append-system-prompt` parity with `/branch`, new `-n`/`-A`
+> - `~ fork-pane.sh` — sets `CLAUDE_CODE_RESUME_SOURCE_ALIVE` + `--session-id` so the fork reports only its *own* orphaned background tasks, not every one the parent left unfinished, and gets the real `/branch` fork note; `FORK_CLAUDE_NO_BOUNDARY=1` opts out
 > - `+ .docs_claude/notes/claude-session-tmux-pane-lookup.md` — the lookup and its traps (`sdk-cli` one-shots stealing the pane, `read` exiting 1 on the missing trailing newline — fatal under `set -e`, no `/proc` on macOS)
+
+---
+
+## 8. VisiData: Clipboard & Keybindings
+
+### [visidata-clipboard-and-vim-keybindings.md](plans/completed/visidata-clipboard-and-vim-keybindings.md)
+`~/dotfiles/.visidatarc`, `~/dotfiles/bin/osc52-copy` · 2026-08-19
+> Copying a cell in `vd` over ssh never reached the laptop, and the keybindings weren't
+> vim. Both fixed in one new rc. The clipboard half: VisiData's syscopy commands shell out
+> to `clipboard_copy_cmd`, whose Linux default `xclip -selection clipboard -filter` writes
+> the *remote* X clipboard — and on a headless ssh login there is no xclip and no
+> `$DISPLAY` at all, so those commands were inert, not merely misdirected. They now go
+> through `tmux load-buffer -w -`, which puts them on the same OSC 52 path
+> `set-clipboard on` already gives copy mode and nvim, with `bin/osc52-copy` for sessions
+> with no tmux. (The key actually being pressed was also wrong: `gy`/`zy` are VisiData's
+> *internal* clipboard and never shell out.) The vim half: `y` cell / `yy` row / `Y` row /
+> `gy` selected / `gzy` column, a `:` command line, `Ctrl+W` window chords, `Ctrl+D`/`Ctrl+U`
+> half-page — and a genuine side-by-side split, which upstream does not have. Two
+> mainloop facts shape all of it: a bound key can never also act as a prefix
+> (`mainloop.py:242` before `:248`), so `yy` is a `beforeExecHooks` state machine rather
+> than a `y` prefix; and `getCommand` chases keystroke aliases before longnames, so the
+> `:` verbs are `vim-`-namespaced or `:e` would run `edit-cell`. Verified with a detached
+> tmux rig driving a real `vd` (documented in the plan, along with 12 traps and the fact
+> that `vd --config FILE` is silently ignored).
+>
+> **Key changes:**
+> - `+ .visidatarc` — new, added to `run.sh`'s `files=()`; clipboard transport picks `tmux load-buffer -w -` inside tmux, else `bin/osc52-copy`, and paste reads back from the tmux buffer since terminals allow OSC 52 writes but not reads
+> - `+ bin/osc52-copy` — base64 + `\033]52;c;…\a` to `/dev/tty`, DCS-wrapped when `$TMUX` is set; symlinked into `~/.local/bin` by `run.sh`'s existing `bin/*` loop
+> - `+ yank-cell-or-row` / `yank-row` / `yank-selected` / `yank-cells` — `.visidatarc` — `y`/`Y`/`gy`/`gzy`, each filling the internal clipboard too so `p`/`P`/`zp` still work; rows serialized by a local `csv.writer` because upstream's csv saver prepends a header row and terminates CRLF
+> - `+ exec-longname-vim` — `.visidatarc` — `:` command line over literal text (not `exec-longname`, whose Enter takes the top *fuzzy* match — `sp` ties five ways); displaces `addcol-split` to `g:`
+> - `+ _completePath` / `vim-e` / `vim-E` — `.visidatarc` — `:e` Tab-completes paths, which upstream's `o` cannot (its two-field `inputPath` form rebinds Tab to next-field); own completer since upstream's skips `~` and the trailing `/` on directories. `:E` browses the cwd via the unbound `open-dir-current`
+> - `+ vim-vs`/`vim-sp`/`vim-only`/`vim-e`/`vim-ls`/`vim-b`/`vim-bn`/`vim-bp`/`vim-bd`/`vim-q`/`vim-qa`/`vim-w` — `.visidatarc` — the `:` verbs; `:bn`/`:bp` have no upstream equivalent
+> - `~ vd.setWindows` override — `.visidatarc` — re-derives the two panes as left/right behind a new `disp_vsplit` option; the only monkeypatch here, and the one thing an upgrade can break
+> - `~ vd.allPrefixes += ['Ctrl+W']` — `.visidatarc` — window chords `^Whjklw`/`^Wv`/`^Ws`/`^Wc`/`^Wo`/`^Wx`; `Ctrl+W` deliberately left unbound directly, or the chords would be unreachable
+> - `~ Ctrl+D`/`Ctrl+U` — `.visidatarc` — half-page scroll, taking `Ctrl+D` from `save-cmdlog` (still reachable as `:save-cmdlog`); written out rather than importing `experimental/vimcompat.py` so the displacement is visible

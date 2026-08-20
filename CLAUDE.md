@@ -48,7 +48,8 @@ those tools and skips the plugin managers.
 
 **`machines/`** — hostname-keyed per-machine shell configs, resolved by
 `source-machine.sh` (which `run.sh` appends to `.bashrc` once). Each `*.sh` filename is
-treated as an anchored regex against `hostname -s`: the first alphabetical regex match
+treated as an anchored regex against the short hostname (`${HOSTNAME%%.*}`, resolved
+without spawning a subprocess): the first alphabetical regex match
 is sourced as a shared base, then `<exact-hostname>.sh` is layered on top so per-host
 overrides win. That is why `machines/r[0-9]+.sh` exists — one base for every PSC compute
 node, with `r033.sh` / `r191.sh` adding just their own path registries.
@@ -57,6 +58,21 @@ To add config for a new machine, create `machines/<hostname>.sh`. No changes to 
 needed. This is also where the per-machine path registry (`pp` / `pl` / `prm` / `to`,
 implemented in `.functions.sh`) writes its marker block, so `$datasets` and friends are
 deliberately machine-local and do not transfer.
+
+It is also where a *foreign* installer's `.bashrc` additions go. `jke-desktop.sh` is the
+worked example: the Nuro work machine runs `Nuro/misc/scripts/swe_setup/swe_setup.sh`,
+which appends fnm/Node, `~/bin` (nuro-cli `n`), and `~/.local/bin` PATH blocks to
+`~/.bashrc`. Moving them into the machine file makes them version-controlled and lets
+them be guarded (swe_setup's `eval "$(fnm env)"` is unguarded and errors once the
+install goes missing). Re-running the foreign installer is then a no-op, because its
+re-append guards are all PATH tests — `command -v fnm`, `":$PATH:" == *":$HOME/bin:"*`
+— and PATH is exported into the installer even though it never reads `.bashrc` itself.
+The two installers otherwise compose: `run.sh`'s `.bashrc` appends are guarded,
+`install-tools.sh` skips tools already on PATH (so apt's git-lfs and swe_setup's claude
+stand), `sync-skills.sh` skips existing destinations, and swe_setup's only git change is
+`include.path` in `Nuro/.git/config`, which the `~/.gitconfig` symlink cannot disturb.
+What does need a manual step per work repo is identity: `.gitconfig` carries a personal
+`user.email`, so a work clone wants `git config --local user.email <work address>`.
 
 **`claude-skills/`** — personal skill library for Claude Code. Each skill is a directory with a `SKILL.md` containing YAML frontmatter (`name`, `description`, `argument-hint`) followed by the recipe. Skills encode reusable design patterns, reference implementations, and domain knowledge (robotics, math, refactoring patterns). To create a new skill, use the `create-skill` skill.
 
@@ -72,11 +88,22 @@ deliberately machine-local and do not transfer.
 | `.bash_vars` | `EDITOR`/`GIT_EDITOR`, and `HISTCONTROL=ignoredups` overriding Ubuntu's stock `ignoreboth` |
 | `.bash_tools` | Shell integration for the installed tools: PATH, zoxide `cd`, the custom fzf Ctrl-T directory-hopping widget, `grab`'s Ctrl-G, yazi's `y` wrapper |
 | `.tmux.conf` | Prefix=Ctrl-Space, vim-style pane nav (hjkl / HJKL to swap), vi copy mode |
+| `.visidatarc` | Two layers. (1) Clipboard transport: the syscopy commands go to `tmux load-buffer -w -` inside tmux (tmux then emits OSC 52 to the attached client) or `bin/osc52-copy` outside it, because the stock `xclip` default writes the *remote* X clipboard and a headless ssh login has neither xclip nor `$DISPLAY`. (2) A vim layer: `y` cell / `yy` row / `Y` row (a `beforeExecHooks` state machine, since a bound key can never also act as a prefix — `mainloop.py:242` before `:248`); `:` command line taking literal text (not `exec-longname`, whose Enter takes the top *fuzzy* match), with `addcol-split` relocated to `g:`; `vim-`-namespaced verbs `:vs :sp :only :e (Tab-completes paths) :E :ls :b :bn `:bp :bd :q :qa :w` — namespaced because `getCommand` chases keystroke aliases first, so a longname `e` is unreachable behind the `e` key; a real side-by-side split via a `vd.setWindows` override (upstream is stacked-only); `Ctrl+W` as a window prefix (`hjklw` swap, `v`/`s` split, `c`/`o` close, `x` exchange); `Ctrl+D`/`Ctrl+U` half-page. Every displaced binding is deliberate: `Sheet` is `TableSheet` (`sheets.py:1092`) and `addCommand` overwrites the stock slot *silently*. The keybind manual, the testing rig, and 12 traps are in `.docs_claude/plans/completed/visidata-clipboard-and-vim-keybindings.md` |
 | `nvim/init.lua` | Kickstart.nvim fork — ~1350-line Lua config; read top-to-bottom to understand plugin/keymap layout. Forked from upstream at `3338d39` (2025-05-22); upstream has since dropped lazy.nvim for `vim.pack`, so it can no longer be merged — see the divergence note below |
 
 ## tmux Conventions
 
 `Ctrl-Space` is the prefix. Pane navigation uses `hjkl`; `HJKL` swaps panes. The `trun` function (in `.functions.sh`) runs a shell function inside a new tmux window so it survives terminal close.
+
+Inactive panes are dimmed by `window-style` (`.tmux.conf`), which recolors only the
+cells an application left at default fg/bg — so it reaches nvim **only** because
+catppuccin runs with `transparent_background = true` in `nvim/init.lua`. Making nvim's
+colorscheme opaque silently disables pane dimming for nvim; TUIs that paint their own
+background (yazi, lazygit) can't be dimmed at all. See the plan doc for the measurements.
+That dim color is also load-bearing beyond looks: tmux answers an OSC 11 background query
+for an inactive pane out of `window-style` instead of forwarding it, so it must stay on
+the same side of light/dark as the terminal theme or every auto-theming app (nvim,
+Claude Code's `"theme": "auto"`) started in an inactive pane picks the wrong mode.
 
 `prefix + X` forks the Claude Code conversation running in the current pane into a
 sibling pane (`prefix + C-x` into a new window), via `tmux-fork-claude.sh`. It resolves
@@ -125,6 +152,7 @@ check this directory directly before re-investigating a "why is X slow / broken"
 | `tmux-popup-clipboard-ssh.md` | Why OSC 52 copy doesn't work inside `display-popup` |
 | `grab-macos-support-roadmap.md` | The four macOS sub-projects for `grab`/dotfiles and what's still open |
 | `nvim-kickstart-upstream-divergence.md` | Why `nvim/` can't be merged from upstream kickstart any more, why nvim-treesitter is pinned to `master`, and the three ways out |
+| `tmux-osc11-background-query.md` | Why nvim / Claude Code pick the wrong light/dark mode inside tmux: tmux answers OSC 11 from the pane's own `window-style` background rather than forwarding to the terminal |
 | `claude-session-tmux-pane-lookup.md` | How a tmux pane resolves to the Claude session running in it (`~/.claude/sessions/<pid>.json`), and the four traps: `sdk-cli` one-shots, no `TMUX_PANE` under `run-shell`, `read` exiting 1 on the missing trailing newline, no `/proc` on macOS |
 
 ## Adding a New Skill
