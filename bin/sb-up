@@ -1,0 +1,53 @@
+#!/bin/bash
+# Start the SilverBullet note server for this host, idempotently, in a detached tmux
+# session (so it outlives the terminal that launched it).
+#
+# Resolves the binary and tmux by absolute path / explicit PATH rather than trusting
+# the caller's environment, because the laptop invokes this over ssh as
+# `ssh jke-desktop '~/.local/bin/sb-up'` — a non-interactive shell, where Ubuntu's
+# .bashrc early-exits before .bash_tools runs and ~/.local/bin is therefore NOT on
+# PATH. A bare `silverbullet` here works interactively and fails over ssh.
+#
+# The space itself (markdown + uploaded images) lives wherever `silverbullet setup`
+# pointed --space-folder; this script only needs the data folder that holds
+# spaces.json/users.json.
+
+set -euo pipefail
+
+SB_PORT=${SB_PORT:-3030}
+SB_DATA=${SB_DATA:-$HOME/.local/share/silverbullet}
+SB_SESSION=${SB_SESSION:-silverbullet}
+SB_BIN=$HOME/.local/bin/silverbullet
+
+# For tmux: /usr/bin on Linux, but /opt/homebrew/bin on an Apple Silicon Mac, which is
+# not on the default PATH either. /usr/bin:/bin are spelled out rather than left to
+# $PATH because an `ssh host cmd` invocation inherits whatever PATH sshd hands out;
+# bash's compiled-in fallback covers it today, which is luck, not a guarantee.
+export PATH="$HOME/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:$PATH"
+
+[ -x "$SB_BIN" ] || {
+	echo "sb-up: $SB_BIN not installed — see install-tools.sh / the release zip" >&2
+	exit 1
+}
+[ -f "$SB_DATA/spaces.json" ] || {
+	echo "sb-up: no space provisioned in $SB_DATA" >&2
+	echo "sb-up: run: silverbullet setup --admin user:pass --space <name> --at / --space-folder <dir> $SB_DATA" >&2
+	exit 1
+}
+
+# -t= is an *exact* name match. A bare -t would also match a session whose name merely
+# starts with "silverbullet", so a stray `silverbullet-test` session would make this
+# report success without ever starting the server.
+if tmux has-session -t="$SB_SESSION" 2>/dev/null; then
+	echo "sb-up: already running (tmux '$SB_SESSION') on 127.0.0.1:$SB_PORT"
+	exit 0
+fi
+
+# -L 127.0.0.1 is load-bearing, not a default worth inheriting: silverbullet binds
+# 0.0.0.0 otherwise, which publishes the whole space on this host's corp-network
+# address (10.x). Loopback-only means an ssh tunnel is the only route in, which is
+# what keeps this inside the sanctioned "laptop -> VPN -> ssh to desktop" path.
+tmux new-session -d -s "$SB_SESSION" \
+	"'$SB_BIN' -L 127.0.0.1 -p '$SB_PORT' '$SB_DATA' 2>&1 | tee -a '$SB_DATA/server.log'"
+
+echo "sb-up: started on 127.0.0.1:$SB_PORT (tmux '$SB_SESSION', log $SB_DATA/server.log)"

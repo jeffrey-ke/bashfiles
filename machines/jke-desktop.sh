@@ -32,3 +32,10 @@ fi
 #     `nvidia-smi -L` and puts /usr/local/cuda/bin on PATH. Only bazel --config=cuda
 #     builds want it, and it shells out to nvidia-smi on every shell start, so
 #     `source` it in the shell that needs it.
+
+# SilverBullet work-log server. This is the host that *serves* the space, so `sb` here
+# starts it; on jke-laptop the same name connects to it instead. The logic is in
+# bin/sb-up rather than inlined, because the laptop runs that same script over ssh.
+alias sb='sb-up'
+alias sbl='cd ~/worklog'
+alias sblog='tail -f ~/.local/share/silverbullet/server.log'
