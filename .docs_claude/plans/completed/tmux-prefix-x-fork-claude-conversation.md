@@ -98,12 +98,35 @@ when the fork's cwd equals the still-live parent's. Verified by reading the spaw
 fork's own `/proc/<pid>/cmdline`.
 
 The lineage is **not** reproducible for a pane fork. It is carried by
-`CLAUDE_CODE_RESUME_SOURCE_ALIVE` (`sessionId|<ISO timestamp>|parentSessionId`), which is
-only read when `CLAUDE_JOB_DIR` is set — i.e. for job-managed background sessions. A
-pane fork is not a job, so it will never appear in the roster as a branch of its parent.
+`CLAUDE_CODE_RESUME_SOURCE_ALIVE` (`sessionId|<ISO timestamp>|parentSessionId`), whose
+*lineage fields* are only written when `CLAUDE_JOB_DIR` is set — i.e. for job-managed
+background sessions. A pane fork is not a job, so it will never appear in the roster as
+a branch of its parent. That env var has two other effects that are **not** job-gated,
+though, and a later pass turned both on for pane forks — see "Bounding the fork's
+orphaned-task scan" below.
 This also dates guard 8 in the skill ("nothing on disk records the lineage"): still true
 of the CLI path, but the in-app path does record it, in the job registry rather than the
 transcript.
+
+## Bounding the fork's orphaned-task scan (follow-up)
+
+Forking left the fork announcing every background task the parent had ever left
+unfinished: *"No completion record was found for this background shell command from the
+previous session."* The resume-time orphan scan reads the **replayed** transcript, and a
+fork replays all of it, so the fork reports shells, Monitors, agents and workflows it
+does not own — a `tail -F` Monitor every time, since it can never produce a completion
+record.
+
+Setting `CLAUDE_CODE_RESUME_SOURCE_ALIVE` to `<fork sid>|<ISO boundary>|<parent sid>`
+confines that scan to messages newer than the boundary. Reading 2.1.236, this is not
+job-gated (unlike the lineage fields) — it is parsed on every resume. Naming the fork's
+session id up front, which `--session-id` permits precisely because `--fork-session` is
+also set, additionally earns the fork the genuine `/branch` note: *"began as a fork
+(copy) of another session that is still running…"*, emitted only while the parent lives.
+A/B on a session holding one orphaned Monitor: **2** notices without the var, **0** with
+it, plus the fork note. The only thing given up is the copy of the parent's file-history
+backups into the fork, so `/rewind` there stops at the boundary;
+`FORK_CLAUDE_NO_BOUNDARY=1` restores the old behaviour.
 
 ## Key changes
 
@@ -118,3 +141,6 @@ transcript.
   `-n NAME` and `-A` (suppress the notice), and reports the derived name.
 - No install step: the script is referenced by absolute `$HOME/dotfiles` path like the
   other `tmux-*.sh` helpers, and `.tmux.conf` is already symlinked.
+- `fork-pane.sh` sets `CLAUDE_CODE_RESUME_SOURCE_ALIVE` and `--session-id` so the fork
+  reports only its own orphaned tasks, not the parent's, and gets the real `/branch`
+  fork note; `FORK_CLAUDE_NO_BOUNDARY=1` opts out.

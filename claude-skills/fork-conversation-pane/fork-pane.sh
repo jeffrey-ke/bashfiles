@@ -20,6 +20,11 @@ usage: fork-pane.sh [-v] [-s SIZE] [-d] [-m MODEL] [-S SESSION_ID] [-C DIR] [-W]
   -n NAME     override the fork's display name (default: "<parent> ⑂ <seed>")
   -A          skip the forked-from-a-live-session system prompt notice
   PROMPT...   optional seed prompt the fork starts working on immediately
+
+env:
+  FORK_CLAUDE_NO_BOUNDARY=1   do not scope the fork's orphaned-task scan to its
+                              own messages (lets the parent's background shells
+                              be re-reported in the fork; see the block below)
 EOF
 }
 
@@ -83,9 +88,11 @@ fi
 # --name "<parent> ⑂ <what>" and an --append-system-prompt telling the fork the
 # parent is still live in this checkout. Both are plain CLI flags, so reproduce
 # them here. What cannot be reproduced is the job-registry lineage
-# (forkParentSessionId et al.): it is only read for background/roster sessions,
-# via CLAUDE_CODE_RESUME_SOURCE_ALIVE when CLAUDE_JOB_DIR is set. A pane fork is
-# not a job, so it never shows up in the roster as a branch of its parent.
+# (forkParentSessionId et al.): those fields are only written for background/
+# roster sessions, i.e. when CLAUDE_JOB_DIR is set. A pane fork is not a job, so
+# it never shows up in the roster as a branch of its parent. The env var that
+# carries them, CLAUDE_CODE_RESUME_SOURCE_ALIVE, is *not* job-gated for its
+# other two effects -- see the boundary block below, which sets it.
 FORK_GLYPH=$'\u2442'   # U+2442 OCR FORK -- the same glyph /branch uses
 
 # The parent's display name and cwd live in ~/.claude/sessions/<pid>.json,
@@ -119,10 +126,50 @@ if [ "$notice" -eq 1 ] && [ -n "$parent_cwd" ] && [ "$parent_cwd" = "$cwd" ]; th
   fork_notice="This conversation was forked from a session that is still working in this checkout ($cwd). Before making code changes, create a new worktree of your own with EnterWorktree so your edits don't land where the original session is editing."
 fi
 
+# --- scope the fork's orphaned-task scan to its own messages ----------------
+# A fork replays the parent's transcript, so Claude's resume-time orphan scan
+# sees every background shell/monitor/agent/workflow the parent ever launched
+# and reports each as "No completion record was found for this background shell
+# command from the previous session" -- the fork owns none of them, and the
+# notice fires again on every later resume of the fork.
+#
+# CLAUDE_CODE_RESUME_SOURCE_ALIVE ("<fork sid>|<ISO boundary>|<parent sid>",
+# read unconditionally on resume in the 2.1.236 bundle) restricts that scan to
+# messages newer than the boundary -- exactly the ones the fork itself produced.
+# It also stops the fork from re-resurrecting the parent's session crons and
+# background agents, and earns the fork the same "you began as a fork of a
+# session that is still running, coordinate with SendMessage" note that /branch
+# gets (emitted only while the parent is still alive, and only when the fork's
+# own session id is known up front -- hence --session-id below).
+#
+# The one cost: the parent's file-history backups are not copied into the fork,
+# so /rewind there cannot reach checkpoints from before the boundary. Set
+# FORK_CLAUDE_NO_BOUNDARY=1 to opt out and get the old behaviour back.
+fork_sid="" boundary=""
+if [ -z "${FORK_CLAUDE_NO_BOUNDARY:-}" ]; then
+  # Seconds precision, and no %N: BSD date has no nanoseconds. The bundle only
+  # requires a leading YYYY-MM-DDT, and Date.parse handles the trailing Z.
+  boundary=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+  fork_sid=$(uuidgen 2>/dev/null \
+    || cat /proc/sys/kernel/random/uuid 2>/dev/null \
+    || python3 -c 'import uuid; print(uuid.uuid4())' 2>/dev/null \
+    || true)
+  fork_sid=$(printf '%s' "$fork_sid" | tr 'A-Z' 'a-z')
+  # An empty first field is still useful: the bundle reads it as "fork session
+  # id unknown" and applies the boundary filter anyway, just without the note.
+  [[ $fork_sid =~ ^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$ ]] \
+    || fork_sid=""
+fi
+
 # --- build the fork command -------------------------------------------------
 # printf %q throughout: the notice contains an apostrophe ("don't"), which kills
 # a naively single-quoted split-window command outright.
-cmd="exec claude --resume $(printf '%q' "$sid") --fork-session"
+cmd="exec"
+[ -n "$boundary" ] \
+  && cmd+=" env CLAUDE_CODE_RESUME_SOURCE_ALIVE=$(printf '%q' "$fork_sid|$boundary|$sid")"
+cmd+=" claude --resume $(printf '%q' "$sid") --fork-session"
+# --session-id is accepted with --resume only because --fork-session is set too.
+[ -n "$fork_sid" ] && cmd+=" --session-id $(printf '%q' "$fork_sid")"
 [ -n "$name" ] && cmd+=" --name $(printf '%q' "$name")"
 [ -n "$fork_notice" ] && cmd+=" --append-system-prompt $(printf '%q' "$fork_notice")"
 [ -n "$model" ] && cmd+=" --model $(printf '%q' "$model")"
@@ -175,6 +222,7 @@ where=$(tmux display-message -p -t "$pane" '#{session_name}:#{window_index}.#{pa
 cat <<EOF
 pane:      $pane   (at $where$focus_note)
 forked:    $sid
+session:   ${fork_sid:-<assigned by the fork at startup>}
 name:      $name
 cwd:       $cwd
 seeded:    ${prompt:-<none, idle at prompt>}

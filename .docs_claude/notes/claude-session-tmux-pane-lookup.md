@@ -1,8 +1,9 @@
 # Resolving a tmux pane to the Claude session running in it
 
 How `tmux-fork-claude.sh` (bound to `prefix+X`) knows which conversation to fork,
-without any help from the Claude process it is forking. All verified on Claude Code
-**2.1.235** / tmux 3.4 / Linux.
+without any help from the Claude process it is forking, and how the fork is stopped
+from inheriting the parent's orphaned background tasks. All verified on Claude Code
+**2.1.235** (**2.1.236** for the orphan-scan section) / tmux 3.4 / Linux.
 
 ## The index already exists: `~/.claude/sessions/<pid>.json`
 
@@ -55,6 +56,44 @@ session whenever two Claudes share a directory, which is the normal case here.
    `ps -o ppid=`; `procStart` cannot be compared there. `FORK_CLAUDE_NO_PROC=1`
    forces that path for testing on Linux.
 
+## A fork inherits the parent's orphaned background tasks
+
+`--fork-session` replays the parent's transcript, and Claude Code's resume-time
+orphan scan reads that replay: every background shell, Monitor, agent and workflow
+recorded in it that has no completion record is reported as
+*"No completion record was found for this background shell command from the previous
+session."* The fork owns none of them. A `tail -F` Monitor is the worst case — it
+can never exit, so it never has a completion record.
+
+The scan is bounded by `CLAUDE_CODE_RESUME_SOURCE_ALIVE`, formatted
+`<fork session id>|<ISO boundary>|<parent session id>` (2.1.236). When it parses,
+the scan only looks at messages whose timestamp is **after** the boundary — i.e.
+only what the fork itself produced. `fork-pane.sh` sets it, with a fresh UUID also
+passed as `--session-id`, which is accepted alongside `--resume` **only** when
+`--fork-session` is set too:
+
+    Error: --session-id can only be used with --continue or --resume if
+    --fork-session is also specified.
+
+Measured, forking a session holding one orphaned Monitor: **2** such notices
+without the var, **0** with it. Naming the fork's session id up front also earns it
+the real `/branch` note (*"began as a fork (copy) of another session that is still
+running: a session whose self-reported name is …"*), which only fires while the
+parent is still alive. Leaving the first field empty still applies the boundary,
+just without that note.
+
+Two further consequences, both arguably wanted: the fork no longer re-resurrects
+the parent's session crons or auto-resumes its background agents (otherwise parent
+and fork both would), and the parent's file-history backups are **not** copied into
+the fork, so `/rewind` there cannot reach pre-boundary checkpoints. That copy is the
+only thing given up; `FORK_CLAUDE_NO_BOUNDARY=1` opts out.
+
+Note that the notice is self-suppressing *within* one transcript — a task id that
+already appears in a `<task-notification>` is skipped — so a session that has
+already reported an orphan will not report it twice. That makes such a session
+useless as a test subject; test against one where the task was launched but never
+reported.
+
 ## A pane fork is not what `/branch` makes
 
 `/branch` spawns a **background job** (the roster behind the `← for agents` hint), not a
@@ -63,6 +102,8 @@ fork notice, and job-registry lineage (`forkParentSessionId` and friends, carrie
 `CLAUDE_CODE_RESUME_SOURCE_ALIVE` and only read when `CLAUDE_JOB_DIR` is set). The first
 two are plain CLI flags and `fork-pane.sh` now passes them; the lineage is unreachable
 for an interactive pane, so `prefix+X` forks never show up in the roster as branches.
+(`CLAUDE_CODE_RESUME_SOURCE_ALIVE` itself is only job-gated for the *lineage fields*
+— its boundary filter and fork note are read on every resume. See above.)
 Full anatomy in `.docs_claude/plans/completed/tmux-prefix-x-fork-claude-conversation.md`.
 
 ## Debugging
