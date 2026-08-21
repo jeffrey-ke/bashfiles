@@ -89,6 +89,23 @@ augroup END
 " For a one-off prose buffer vim didn't recognize: toggle spell on this buffer.
 " ('1z=' in the mapping below errors with E756 when 'spell' is off.)
 nnoremap <Space>s :setlocal spell!<CR>:setlocal spell?<CR>
+" ── yank -> system clipboard ─────────────────────────────────────────────────
+" Mirror every *yank* into the macOS pasteboard, so y is enough and cmd-c is
+" not needed to hand text to another app. Deliberately not 'clipboard=unnamed':
+" that routes deletes through the pasteboard too, so a stray x or dd would
+" clobber what you copied. TextYankPost fires for d/c/y alike, hence the
+" operator check; regcontents+regtype keep linewise and blockwise yanks intact.
+" macOS-only: on the Linux hosts this file is shared with, writing '*' means an
+" X11 connection that an ssh session usually does not have.
+if has('mac') && has('clipboard') && exists('##TextYankPost')
+  augroup YankToClipboard
+    autocmd!
+    autocmd TextYankPost *
+          \ if v:event.operator ==# 'y' |
+          \   call setreg('*', v:event.regcontents, v:event.regtype) |
+          \ endif
+  augroup END
+endif
 " Fix the previous typo without leaving insert mode (castel.dev/post/lecture-notes-1):
 " [s jumps back to it, 1z= takes the first suggestion, `]a returns to where you
 " were typing. The <c-g>u breaks make the whole correction a single undo.
