@@ -154,6 +154,8 @@ check this directory directly before re-investigating a "why is X slow / broken"
 | `nvim-kickstart-upstream-divergence.md` | Why `nvim/` can't be merged from upstream kickstart any more, why nvim-treesitter is pinned to `master`, and the three ways out |
 | `tmux-osc11-background-query.md` | Why nvim / Claude Code pick the wrong light/dark mode inside tmux: tmux answers OSC 11 from the pane's own `window-style` background rather than forwarding to the terminal |
 | `claude-session-tmux-pane-lookup.md` | How a tmux pane resolves to the Claude session running in it (`~/.claude/sessions/<pid>.json`), and the four traps: `sdk-cli` one-shots, no `TMUX_PANE` under `run-shell`, `read` exiting 1 on the missing trailing newline, no `/proc` on macOS |
+| `rg-over-ssh-reads-stdin.md` | Why a remote `rg` finds nothing on a file that clearly matches — no path argument means it searches stdin, which `ssh host cmd` leaves empty — and the two different silent-empty modes of a remote grep |
+| `silverbullet-space-outside-the-browser.md` | What editing `~/worklog` in nvim can and cannot reach: no server-side index (disk is the truth), `Library/Std/*` pages that exist only inside the binary, `index.md` as Space Lua rather than links, wikilink resolution rules, and why `sbj` runs nvim over ssh instead of `scp://` |
 
 ## Adding a New Skill
 
