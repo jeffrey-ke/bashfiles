@@ -111,9 +111,11 @@ bgfind -d /some/dir   # any directory-of-directories works
 | `ctrl-o` | open the session dir in `$EDITOR` |
 | `ctrl-r` | redraw the preview (it does not auto-follow) |
 
-Streaming is `less +F`: `Ctrl-C` leaves follow mode for a normal pager so they can scroll back,
-`F` resumes, `q` quits. Quitting the pager can leave a stray line of its screen in the
-scrollback; that is a remnant, not an error message.
+Streaming is `less +F`, which follows the file and shows `Waiting for data... (interrupt to
+abort)` at the bottom. In follow mode the *first* keypress only drops out of following into a
+normal pager -- so `q` once stops following and `q` again quits, and `Ctrl-C` then `q` does the
+same; `F` resumes. Quitting leaves a stray line of the pager's screen in the scrollback, which
+is a remnant, not an error message.
 
 ## Gotchas
 

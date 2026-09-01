@@ -172,15 +172,26 @@ if [ "$printonly" = 0 ]; then
 	)
 fi
 
-choice=$(printf '%s\n' "$records" | fzf \
-	--query="${1:-}" \
-	--prompt='session> ' \
-	--header='enter: stream    ctrl-f: pick file    ctrl-o: $EDITOR    ctrl-r: redraw' \
-	--preview="$q -d $qroot --preview {1}" \
-	--preview-window='right,60%,wrap' \
-	"${binds[@]}" |
-	awk '{print $1}') || exit 130
+fzf_args=(
+	--query="${1:-}"
+	--prompt='session> '
+	--header='enter: stream    ctrl-f: pick file    ctrl-o: $EDITOR    ctrl-r: redraw'
+	--preview="$q -d $qroot --preview {1}"
+	--preview-window='right,60%,wrap'
+	"${binds[@]}"
+)
 
-# Only reached with -p: without it, enter and ctrl-f have already become the pager.
+# Two call sites rather than one, because the two modes need different stdout and
+# there is no way to have both at once. `become` does not spawn the pager, it
+# *replaces* fzf with it, so the pager inherits whatever stdout fzf was given --
+# and a `less` whose stdout is a pipe quietly degrades to `cat` and dumps the
+# entire log. So the streaming mode must leave stdout as the terminal, while -p,
+# which has no `become` bindings, is free to capture it.
+if [ "$printonly" = 0 ]; then
+	printf '%s\n' "$records" | fzf "${fzf_args[@]}" || exit 130
+	exit 0
+fi
+
+choice=$(printf '%s\n' "$records" | fzf "${fzf_args[@]}" | awk '{print $1}') || exit 130
 [ -n "$choice" ] || exit 130
 printf '%s\n' "$root/$choice"
