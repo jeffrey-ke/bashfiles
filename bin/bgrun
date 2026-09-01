@@ -1,0 +1,146 @@
+#!/usr/bin/env bash
+# bgrun -- run a command detached, into a named session directory.
+#
+# Usage:
+#   bgrun [-n NAME] [-d DIR] cmd [args ...]
+#   bgrun [-n NAME] [-d DIR] -c 'shell string'
+#
+#   -n NAME  slug for the session directory (default: the command's basename)
+#   -c STR   run STR through `bash -c` instead of exec'ing an argv. Needed for
+#            anything with a pipe, redirect, &&, or $(...) in it.
+#   -d DIR   session root (default $BG_DIR, then ~/.local/state/bg)
+#
+# Prints the session directory to stdout -- that is the composable handle, so
+# `cd "$(bgrun -c '...')"` and `tail -f "$(bgrun ...)"/out` both work. Progress
+# chatter goes to stderr.
+#
+# THE CONTRACT (this is the whole interface; bgfind knows only this)
+#
+#   <root>/<name>/          one directory per session, name unique by construction
+#            out            the command's stdout
+#            err            the command's stderr
+#            meta           `key: value` lines, one per line
+#            status         the exit code -- written ONLY when the command exits,
+#                           so "no status file" is the definition of "still running"
+#
+# `meta` and `status` are the only two reserved names. Everything else in the
+# directory is opaque payload as far as any reader is concerned: bgfind streams
+# files without caring whether it is looking at out, err, or a metrics.csv some
+# other producer dropped there. Which means anything that follows this layout --
+# a training script, a Makefile, another tool entirely -- shows up in the picker
+# for free, with no registration and no index file to rebuild.
+#
+# Names are <slug>-<YYYYmmdd-HHMMSS> and the directory is created with `mkdir`
+# (not -p), so the create either wins or fails; a same-second collision retries
+# with a -2, -3 suffix. Timestamped names mean there is no "name already taken"
+# case to resolve and no way to clobber a previous run's log.
+#
+# Detaching is `setsid --fork` alone. No nohup: setsid puts the child in a new
+# session with no controlling terminal (verified: PPID 1, SID == PID, TT ?), and
+# a terminal that closes only SIGHUPs its own foreground group, so there is no
+# hangup left for nohup to ignore. No trailing `&` either -- setsid --fork
+# returns as soon as it has forked.
+#
+# Because setsid makes the supervisor a session leader, its PID is also its
+# process-group ID, and that is what lands in meta as `pgid`. Killing the job
+# and everything it spawned is therefore `kill -- -<pgid>`.
+#
+# Linux only: setsid(1) is util-linux and macOS ships no equivalent.
+set -euo pipefail
+
+BG_DIR=${BG_DIR:-$HOME/.local/state/bg}
+
+die() { printf 'bgrun: %s\n' "$*" >&2; exit 1; }
+
+name="" shellstr="" root="$BG_DIR"
+while [ $# -gt 0 ]; do
+	case $1 in
+	-n) name=${2:-}; shift ;;
+	-c) shellstr=${2:-}; shift ;;
+	-d) root=${2:-}; shift ;;
+	-h | --help)
+		sed -n '2,/^set -euo/p' "$0" | sed 's/^# \?//; $d'
+		exit 0
+		;;
+	--) shift; break ;;
+	-*) die "unknown option $1 (try -h)" ;;
+	*) break ;;
+	esac
+	shift
+done
+
+if [ -n "$shellstr" ]; then
+	[ $# -eq 0 ] || die "-c takes the whole command as one string; got extra args: $*"
+	set -- bash -c "$shellstr"
+	firstword=${shellstr%% *}
+else
+	[ $# -gt 0 ] || die "no command given (try -h)"
+	firstword=$1
+fi
+
+# Slug from the command unless named: basename, minus anything that would make
+# the directory awkward to type or to quote.
+if [ -z "$name" ]; then
+	name=$(basename -- "$firstword")
+	name=${name//[^A-Za-z0-9._-]/_}
+	name=${name:0:24}
+fi
+[ -n "$name" ] || die "empty session name"
+
+mkdir -p "$root" || die "cannot create session root $root"
+
+stamp=$(date +%Y%m%d-%H%M%S)
+dir="" n=1
+while :; do
+	candidate="$root/$name-$stamp"
+	[ "$n" -eq 1 ] || candidate="$root/$name-$stamp-$n"
+	if mkdir "$candidate" 2>/dev/null; then
+		dir=$candidate
+		break
+	fi
+	n=$((n + 1))
+	[ "$n" -le 50 ] || die "cannot find a free session name under $root"
+done
+
+# Written before the spawn so the supervisor can append to a file that is
+# already closed here -- one writer at a time, no interleaving.
+{
+	printf 'name: %s\n' "${dir##*/}"
+	printf 'started: %s\n' "$(date '+%Y-%m-%d %H:%M:%S')"
+	printf 'host: %s\n' "${HOSTNAME:-$(uname -n)}"
+	printf 'cwd: %s\n' "$PWD"
+	# %q keeps this one line and re-runnable: a newline inside an argument comes
+	# back as $'\n' rather than breaking the key: value format.
+	printf 'cmd:'
+	printf ' %q' "$@"
+	printf '\n'
+} >"$dir/meta"
+
+# The supervisor exists only to outlive the command and record its exit code;
+# `exec` here would leave nobody to write status. stdin is /dev/null so a job
+# that reads from the terminal fails immediately instead of blocking forever on
+# a tty it no longer has.
+#
+# Its OWN stdio goes to /dev/null, separately from the command's: it inherits
+# this script's stdout, and this script is meant to be called in a command
+# substitution. A supervisor still holding that pipe open would make
+# `d=$(bgrun ...)` block for the entire life of the job instead of returning a
+# path immediately.
+setsid --fork bash -c '
+	dir=$1; shift
+	printf "pgid: %s\n" "$$" >>"$dir/meta"
+	# `kill -- -<pgid>` signals the supervisor along with the job, so without
+	# these traps a killed session would never get a status file and would read
+	# as "still running" forever. SIGKILL is still a hole -- untrappable, so
+	# `kill -9` does leave a session looking live.
+	trap "printf %s\\\\n 143 >\"$dir/status\"; exit 143" TERM
+	trap "printf %s\\\\n 130 >\"$dir/status\"; exit 130" INT
+	"$@" >"$dir/out" 2>"$dir/err" </dev/null
+	code=$?
+	printf "%s\n" "$code" >"$dir/status"
+	printf "ended: %s\n" "$(date "+%Y-%m-%d %H:%M:%S")" >>"$dir/meta"
+	exit $code
+' bgrun-supervisor "$dir" "$@" >/dev/null 2>&1 </dev/null
+
+printf 'bgrun: %s\n' "${dir##*/}" >&2
+printf '%s\n' "$dir"

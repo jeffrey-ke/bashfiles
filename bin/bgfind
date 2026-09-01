@@ -1,0 +1,186 @@
+#!/usr/bin/env bash
+# bgfind -- fzf over background sessions; Enter streams one's output.
+#
+# Usage:
+#   bgfind [-d DIR] [-p] [query]
+#
+#   -d DIR   session root (default $BG_DIR, then ~/.local/state/bg)
+#   -p       print the chosen session's directory instead of streaming it
+#
+#   bgfind --list        print the same records to stdout, for rg/grep or a
+#                        pipeline with no terminal
+#
+# In the picker:
+#   enter     stream that session's most recently written file
+#   ctrl-f    choose WHICH file to stream (a session can hold more than out/err)
+#   ctrl-o    open the session directory in $EDITOR
+#   ctrl-r    redraw the preview (logs move; the preview does not follow)
+#
+# Reads one thing only: a directory of directories. Within a session it treats
+# `meta` (key: value lines) and `status` (an exit code, present only once the
+# job is done) as the two reserved names, and every other file as opaque text to
+# tail. It never assumes a file called `out` exists, so this works unchanged on
+# any producer that adopts the same layout -- bgrun is merely the first one. See
+# bgrun -h for the contract in full.
+#
+# No index file: the listing is recomputed from the filesystem on each run, so
+# deleting or renaming a session directory by hand needs no bookkeeping.
+#
+# Streaming is `less +F` when available rather than `tail -f`, because Ctrl-C
+# in less drops out of follow mode into a normal pager -- you can scroll back
+# through what already scrolled past, then `F` to resume following. Enter uses
+# fzf's `become`, replacing the picker process with the pager instead of nesting
+# one full-screen program inside another.
+set -euo pipefail
+
+BG_DIR=${BG_DIR:-$HOME/.local/state/bg}
+
+die() { printf 'bgfind: %s\n' "$*" >&2; exit 1; }
+
+self=$(readlink -f "$0")
+
+meta_get() { sed -n "s/^$2: *//p;/^$2: /q" "$1" 2>/dev/null || true; }
+
+# Files a reader is allowed to treat as payload: everything but the two
+# reserved names, newest first.
+payload_files() {
+	find "$1" -maxdepth 1 -type f ! -name meta ! -name status -printf '%T@ %p\n' 2>/dev/null |
+		sort -rn | cut -d' ' -f2-
+}
+
+state_of() {
+	local d=$1 code
+	if [ -r "$d/status" ]; then
+		code=$(tr -d '[:space:]' <"$d/status")
+		[ "$code" = 0 ] && printf 'done' || printf 'exit %s' "$code"
+	else
+		printf 'running'
+	fi
+}
+
+# `<epoch>\t<padded record>`, sorted newest-activity-first and the key cut back
+# off. Sorting on the newest file inside the session, not on the directory's own
+# mtime: appending to out does not touch the directory.
+list() {
+	local d name newest size line
+	shopt -s nullglob
+	for d in "$root"/*/; do
+		d=${d%/}
+		name=${d##*/}
+		newest=$(find "$d" -maxdepth 1 -type f -printf '%T@\n' 2>/dev/null |
+			sort -rn | awk 'NR==1{printf "%d", $1}')
+		[ -n "$newest" ] || newest=0
+		size=$(du -sh --apparent-size "$d" 2>/dev/null | awk '{print $1}')
+		# The command runs off the right edge on purpose: fzf matches the whole
+		# line whether or not it is visible, and the preview shows it in full.
+		line=$(printf '%-34s  %-8s  %5s  %s' \
+			"$name" "$(state_of "$d")" "${size:--}" "$(meta_get "$d/meta" cmd)")
+		printf '%s\t%s\n' "$newest" "$line"
+	done
+	shopt -u nullglob
+}
+
+preview() {
+	local d="$root/$1" f n=0
+	[ -d "$d" ] || { printf '  (gone: %s)\n' "$d"; return 0; }
+
+	printf '  state: %s\n' "$(state_of "$d")"
+	sed 's/^/  /' "$d/meta" 2>/dev/null
+
+	printf '\n  --- files ---\n'
+	while IFS= read -r f; do
+		[ -n "$f" ] || continue
+		printf '  %-12s %8s  %s\n' "${f##*/}" \
+			"$(du -h --apparent-size "$f" | awk '{print $1}')" \
+			"$(date -r "$f" '+%H:%M:%S')"
+		n=$((n + 1))
+	done < <(payload_files "$d")
+	[ "$n" -gt 0 ] || printf '  (none yet)\n'
+
+	f=$(payload_files "$d" | awk 'NR==1')
+	if [ -n "$f" ]; then
+		printf '\n  --- tail %s ---\n' "${f##*/}"
+		tail -n 40 -- "$f" | sed 's/^/  /'
+	fi
+}
+
+stream() {
+	local f=$1
+	[ -r "$f" ] || die "cannot read $f"
+	if command -v less >/dev/null 2>&1; then
+		exec less +F -R -- "$f"
+	fi
+	exec tail -f -- "$f"
+}
+
+root="$BG_DIR" printonly=0
+while [ $# -gt 0 ]; do
+	case $1 in
+	-d) root=${2:-}; shift ;;
+	-p) printonly=1 ;;
+	-h | --help)
+		sed -n '2,/^set -euo/p' "$0" | sed 's/^# \?//; $d'
+		exit 0
+		;;
+	--list)
+		list | cut -f2-
+		exit 0
+		;;
+	--preview)
+		preview "${2:-}"
+		exit 0
+		;;
+	--stream)
+		d="$root/${2:-}"
+		f=$(payload_files "$d" | awk 'NR==1')
+		[ -n "$f" ] || die "session ${2:-} has no output files yet"
+		stream "$f"
+		;;
+	--pick)
+		d="$root/${2:-}"
+		f=$(payload_files "$d" | fzf --prompt='file> ' --select-1 \
+			--preview='tail -n 200 -- {}' --preview-window='right,60%,wrap') || exit 130
+		[ -n "$f" ] || exit 130
+		stream "$f"
+		;;
+	-*) die "unknown option $1 (try -h)" ;;
+	*) break ;;
+	esac
+	shift
+done
+
+command -v fzf >/dev/null 2>&1 || die "fzf not on PATH"
+[ -d "$root" ] || die "no session root at $root (start something with bgrun)"
+
+records=$(list | sort -rn | cut -f2-)
+[ -n "$records" ] || die "no sessions under $root"
+
+q=$(printf '%q' "$self")
+qroot=$(printf '%q' "$root")
+
+# With -p the caller wants a path on stdout, so enter must stay fzf's plain
+# accept: rebinding it to `become` would replace this process with the pager and
+# leave no stdout to print to.
+binds=(
+	"--bind=ctrl-r:refresh-preview"
+	"--bind=ctrl-o:execute(\${EDITOR:-nvim} $qroot/{1})"
+)
+if [ "$printonly" = 0 ]; then
+	binds+=(
+		"--bind=ctrl-f:become($q -d $qroot --pick {1})"
+		"--bind=enter:become($q -d $qroot --stream {1})"
+	)
+fi
+
+choice=$(printf '%s\n' "$records" | fzf \
+	--query="${1:-}" \
+	--prompt='session> ' \
+	--header='enter: stream    ctrl-f: pick file    ctrl-o: $EDITOR    ctrl-r: redraw' \
+	--preview="$q -d $qroot --preview {1}" \
+	--preview-window='right,60%,wrap' \
+	"${binds[@]}" |
+	awk '{print $1}') || exit 130
+
+# Only reached with -p: without it, enter and ctrl-f have already become the pager.
+[ -n "$choice" ] || exit 130
+printf '%s\n' "$root/$choice"
