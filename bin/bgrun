@@ -1,39 +1,71 @@
 #!/usr/bin/env bash
-# bgrun -- run a command detached, into a named session directory.
+# bgrun -- run a script detached, into a named session directory.
 #
 # Usage:
-#   bgrun [-n NAME] [-d DIR] cmd [args ...]
+#   bgrun [-n NAME] [-d DIR] FILE [args ...]
 #   bgrun [-n NAME] [-d DIR] -c 'shell string'
 #
-#   -n NAME  slug for the session directory (default: the command's basename)
-#   -c STR   run STR through `bash -c` instead of exec'ing an argv. Needed for
-#            anything with a pipe, redirect, &&, or $(...) in it.
+#   -n NAME  slug for the session directory (default: FILE's basename with one
+#            extension removed; for -c, the first word of the string)
+#   -c STR   take the commands from STR instead of from a file
 #   -d DIR   session root (default $BG_DIR, then ~/.local/state/bg)
 #
 # Prints the session directory to stdout -- that is the composable handle, so
-# `cd "$(bgrun -c '...')"` and `tail -f "$(bgrun ...)"/out` both work. Progress
+# `cd "$(bgrun ...)"` and `tail -f "$(bgrun ...)"/out` both work. Progress
 # chatter goes to stderr.
+#
+# The two forms are bash's own two forms, on purpose: `bgrun FILE args` means
+# what `bash FILE args` means, `bgrun -c STR` means what `bash -c STR` means,
+# and neither can launch a binary. There is no argv form -- for a program plus
+# flags write `bgrun -c 'trainer --lr 1e-4'`, or point it at a two-line script.
+#
+# What a file buys is a handle on the *text* of the job. Anything long enough to
+# be worth backgrounding is long enough to need quoting, so it belongs in a file
+# rather than on a command line; and a session that records only
+# `bash /tmp/job.FZ4H5L.sh` is a dead reference the moment /tmp is swept. So the
+# first thing bgrun does is materialise the job as `cmd.sh` inside the session
+# directory -- copied from FILE, or written out from STR -- and then run *that
+# copy*. Editing or deleting the original mid-run cannot reach the job, and the
+# session is provably the thing that ran.
+#
+# Both forms share that one execution path, which is why -c stops being a
+# special case below: it is only a different way of filling cmd.sh.
+#
+# One deliberate deviation from bash: `bash -c STR extra args` assigns extra to
+# $0, $1 ..., while bgrun rejects trailing args after -c. That refusal is the
+# only diagnostic that catches an unquoted `bgrun -c $cmd`, where the caller's
+# shell has already split the string and backgrounding the first fragment would
+# otherwise be silent.
 #
 # THE CONTRACT (this is the whole interface; bgfind knows only this)
 #
 #   <root>/<name>/          one directory per session, name unique by construction
-#            out            the command's stdout
-#            err            the command's stderr
+#            cmd.sh         the script that ran, verbatim
+#            out            its stdout
+#            err            its stderr
 #            meta           `key: value` lines, one per line
 #            status         the exit code -- written ONLY when the command exits,
 #                           so "no status file" is the definition of "still running"
 #
-# `meta` and `status` are the only two reserved names. Everything else in the
-# directory is opaque payload as far as any reader is concerned: bgfind streams
-# files without caring whether it is looking at out, err, or a metrics.csv some
-# other producer dropped there. Which means anything that follows this layout --
-# a training script, a Makefile, another tool entirely -- shows up in the picker
-# for free, with no registration and no index file to rebuild.
+# `meta` and `status` are still the only two reserved names. Everything else in
+# the directory is opaque payload as far as any reader is concerned, and that
+# deliberately includes cmd.sh: bgfind lists and streams it like any other file,
+# which is exactly what you want when the question is "what did this session
+# actually run". It also means anything else following this layout -- a training
+# script, a Makefile, another tool entirely -- shows up in the picker for free,
+# with no registration and no index file to rebuild.
 #
 # Names are <slug>-<YYYYmmdd-HHMMSS> and the directory is created with `mkdir`
 # (not -p), so the create either wins or fails; a same-second collision retries
 # with a -2, -3 suffix. Timestamped names mean there is no "name already taken"
 # case to resolve and no way to clobber a previous run's log.
+#
+# `bash -n` runs over the job before anything is created, so a syntax error
+# fails in the caller's terminal with a nonzero exit rather than ten
+# milliseconds later inside a file nobody is watching -- which is also what
+# makes `bgrun ... && next` behave. It is not a full net: an unterminated
+# heredoc is only a *warning* to bash and exits 0, so the warning reaches the
+# terminal but the job still runs.
 #
 # Detaching is `setsid --fork` alone. No nohup: setsid puts the child in a new
 # session with no controlling terminal (verified: PPID 1, SID == PID, TT ?), and
@@ -52,11 +84,11 @@ BG_DIR=${BG_DIR:-$HOME/.local/state/bg}
 
 die() { printf 'bgrun: %s\n' "$*" >&2; exit 1; }
 
-name="" shellstr="" root="$BG_DIR"
+name="" shellstr="" have_c=0 root="$BG_DIR"
 while [ $# -gt 0 ]; do
 	case $1 in
 	-n) name=${2:-}; shift ;;
-	-c) shellstr=${2:-}; shift ;;
+	-c) shellstr=${2:-}; have_c=1; shift ;;
 	-d) root=${2:-}; shift ;;
 	-h | --help)
 		sed -n '2,/^set -euo/p' "$0" | sed 's/^# \?//; $d'
@@ -69,19 +101,35 @@ while [ $# -gt 0 ]; do
 	shift
 done
 
-if [ -n "$shellstr" ]; then
+# Exactly one of the two forms. `src` is the file to copy the job out of; empty
+# means it arrived as a string. Both are syntax-checked here, before the session
+# directory exists, so a bad job leaves nothing behind to clean up.
+src="" srcdesc="-c string"
+if [ "$have_c" -eq 1 ]; then
 	[ $# -eq 0 ] || die "-c takes the whole command as one string; got extra args: $*"
-	set -- bash -c "$shellstr"
-	firstword=${shellstr%% *}
+	bash -n -c "$shellstr" || die "syntax error in -c string; nothing spawned"
 else
-	[ $# -gt 0 ] || die "no command given (try -h)"
-	firstword=$1
+	[ $# -gt 0 ] || die "no script given (try -h)"
+	src=$1; shift
+	[ -e "$src" ] || die "no such file: $src (for a program plus flags, use -c)"
+	[ -f "$src" ] || die "not a regular file: $src"
+	[ -r "$src" ] || die "cannot read: $src"
+	# Read as shell, exactly as `bash FILE` would. A python or awk script with a
+	# shebang is not a candidate for this form; it wants -c 'python3 foo.py'.
+	bash -n -- "$src" || die "syntax error in $src; nothing spawned"
+	srcdesc=$(readlink -f -- "$src")
 fi
 
-# Slug from the command unless named: basename, minus anything that would make
-# the directory awkward to type or to quote.
+# Slug from the job unless named. A file hands over a real basename; a string
+# only offers its first word, which is why -c usually wants an explicit -n.
 if [ -z "$name" ]; then
-	name=$(basename -- "$firstword")
+	if [ -n "$src" ]; then
+		name=$(basename -- "$src")
+		# One extension off, so run.sh -> run, but a dotfile keeps its name.
+		[ -z "${name%.*}" ] || name=${name%.*}
+	else
+		name=$(basename -- "${shellstr%% *}")
+	fi
 	name=${name//[^A-Za-z0-9._-]/_}
 	name=${name:0:24}
 fi
@@ -102,6 +150,15 @@ while :; do
 	[ "$n" -le 50 ] || die "cannot find a free session name under $root"
 done
 
+# `cat` rather than `cp`, so the session gets the file's *contents* on a fresh
+# inode: a hardlink or a later edit of the original cannot reach the copy that
+# is about to run.
+if [ -n "$src" ]; then
+	cat -- "$src" >"$dir/cmd.sh" || die "cannot copy $src into $dir"
+else
+	printf '%s\n' "$shellstr" >"$dir/cmd.sh" || die "cannot write $dir/cmd.sh"
+fi
+
 # Written before the spawn so the supervisor can append to a file that is
 # already closed here -- one writer at a time, no interleaving.
 {
@@ -109,20 +166,31 @@ done
 	printf 'started: %s\n' "$(date '+%Y-%m-%d %H:%M:%S')"
 	printf 'host: %s\n' "${HOSTNAME:-$(uname -n)}"
 	printf 'cwd: %s\n' "$PWD"
-	# %q keeps this one line and re-runnable: a newline inside an argument comes
-	# back as $'\n' rather than breaking the key: value format.
+	# Where cmd.sh was copied from. The copy itself no longer says, and after a
+	# /tmp sweep this line is the only record that it ever had another home.
+	printf 'src: %s\n' "$srcdesc"
+	# Names the job for bgfind's command column: the script's basename plus its
+	# arguments, or the -c string itself. %q keeps it on one line -- a newline
+	# inside it comes back as $'\n' instead of breaking the key: value format.
+	# Re-running a session is `bash cmd.sh <args>`, not this line; identifying it
+	# at a glance in the picker is all this line is for.
 	printf 'cmd:'
-	printf ' %q' "$@"
+	if [ -n "$src" ]; then
+		printf ' %q' "$(basename -- "$src")"
+		if [ $# -gt 0 ]; then printf ' %q' "$@"; fi
+	else
+		printf ' %q' "$shellstr"
+	fi
 	printf '\n'
 } >"$dir/meta"
 
-# The supervisor exists only to outlive the command and record its exit code;
+# The supervisor exists only to outlive the job and record its exit code;
 # `exec` here would leave nobody to write status. stdin is /dev/null so a job
 # that reads from the terminal fails immediately instead of blocking forever on
 # a tty it no longer has.
 #
-# Its OWN stdio goes to /dev/null, separately from the command's: it inherits
-# this script's stdout, and this script is meant to be called in a command
+# Its OWN stdio goes to /dev/null, separately from the job's: it inherits this
+# script's stdout, and this script is meant to be called in a command
 # substitution. A supervisor still holding that pipe open would make
 # `d=$(bgrun ...)` block for the entire life of the job instead of returning a
 # path immediately.
@@ -135,7 +203,7 @@ setsid --fork bash -c '
 	# `kill -9` does leave a session looking live.
 	trap "printf %s\\\\n 143 >\"$dir/status\"; exit 143" TERM
 	trap "printf %s\\\\n 130 >\"$dir/status\"; exit 130" INT
-	"$@" >"$dir/out" 2>"$dir/err" </dev/null
+	bash "$dir/cmd.sh" "$@" >"$dir/out" 2>"$dir/err" </dev/null
 	code=$?
 	printf "%s\n" "$code" >"$dir/status"
 	printf "ended: %s\n" "$(date "+%Y-%m-%d %H:%M:%S")" >>"$dir/meta"
