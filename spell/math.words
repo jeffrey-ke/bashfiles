@@ -1,0 +1,236 @@
+# Mathematical vocabulary: analysis, algebra, probability, optimization, geometry.
+#
+# Source for the 'math' entry in 'spelllang' (see the spell section of
+# dotfiles/nvim/init.lua). One word per line; lines starting with # are comments.
+# nvim never reads this file directly -- init.lua recompiles it with :mkspell
+# into stdpath('data')/site/spell/math.utf-8.spl whenever this file is newer, so
+# just edit, save, and restart nvim.
+#
+# Every word here was checked against nvim's bundled en dictionary and kept only
+# because that dictionary lacks it -- so do not add words en already knows
+# (matrix, manifold, eigenvalue, covariate, refactoring, ... are all fine
+# already). Prefer lowercase: a lowercase entry also accepts the Capitalized and
+# ALL-CAPS forms, while a capitalised entry only accepts itself. Hyphenated
+# terms need no entry -- vim spell-checks each side separately, so "well-posed"
+# and "zero-shot" already pass.
+#
+# Words you add with zg do NOT come here; they go to spell/en.utf-8.add.
+
+# analysis
+supremum
+infimum
+suprema
+infima
+limsup
+liminf
+Borel
+nonmeasurable
+Nikodym
+Fubini
+Tonelli
+Fatou
+equicontinuous
+equicontinuity
+pointwise
+seminorm
+seminorms
+Sobolev
+Frechet
+bidual
+precompact
+homeomorphism
+homeomorphic
+diffeomorphism
+diffeomorphic
+isometries
+monoid
+monoids
+groupoid
+adjoint
+adjointness
+adjunction
+mollifier
+subsequences
+subsequential
+sigmoidal
+asymptotics
+# linear algebra
+eigenbasis
+eigenspace
+eigenspaces
+eigendecomposition
+eigenpair
+noninvertible
+nonsingular
+orthonormality
+semidefinite
+Cholesky
+pseudoinverse
+Krylov
+Laplacian
+tensorial
+contravariant
+Frobenius
+unimodular
+nullspace
+corank
+codomain
+diagonalization
+tridiagonal
+rowwise
+columnwise
+elementwise
+componentwise
+coordinatewise
+# probability and statistics
+stochasticity
+submartingale
+supermartingale
+Markovian
+stationarity
+Gaussians
+Wishart
+loglikelihood
+frequentist
+Kullback
+Leibler
+subgaussian
+subexponential
+Chebyshev
+Chernoff
+Hoeffding
+heteroscedastic
+homoscedastic
+cumulant
+cumulants
+unbiasedness
+overdispersion
+# optimization
+nonconvex
+nonconvexity
+subgradient
+subgradients
+subdifferential
+Karush
+stepsize
+stepsizes
+linesearch
+quasiconvex
+Nesterov
+Polyak
+preconditioner
+polytope
+reparametrization
+underdetermined
+# geometry and topology
+submanifold
+submanifolds
+Riemannian
+pseudometric
+holonomy
+cohomology
+simplicial
+simplices
+nonorientable
+equivariant
+equivariance
+# discrete and logic
+poset
+posets
+coset
+cosets
+coprime
+Eulerian
+polylogarithmic
+subquadratic
+axiomatize
+axiomatization
+# named results and people
+Gronwall
+Minkowski
+Schwarz
+Parseval
+Plancherel
+Fejer
+Bolzano
+Arzela
+Ascoli
+Zermelo
+Choquet
+Bochner
+Bregman
+Wasserstein
+Kantorovich
+Sinkhorn
+Tikhonov
+Moreau
+Fenchel
+Nystrom
+Toeplitz
+Vandermonde
+Hankel
+Arnoldi
+Lanczos
+Perron
+Weyl
+Schur
+Lyapunov
+Doob
+Kolmogorov
+Smirnov
+Wilcoxon
+Rao
+Neyman
+Hotelling
+Mahalanobis
+Noether
+Grassmann
+Tychonoff
+Urysohn
+Cech
+Alexandrov
+Gromov
+Sard
+Chern
+Bianchi
+# terms
+injectivity
+surjectivity
+bijectivity
+subadditive
+superadditive
+submultiplicative
+subharmonic
+nonnegative
+nonpositive
+nondegenerate
+nonsmooth
+nonasymptotic
+nonparametric
+semiparametric
+semisimple
+semigroup
+semigroups
+sublinear
+superlinear
+cadlag
+digamma
+sublevel
+superlevel
+subsolution
+supersolution
+lowerbound
+upperbound
+antiderivative
+codifferential
+subcover
+subcovers
+ultrafilter
+presheaf
+etale
+discretization
+discretize
+discretized
+Galerkin
+multigrid
+CFL
