@@ -49,6 +49,26 @@ session — never guess, since jumping the wrong window is disorienting.
 
 ## Step 3: Push and jump
 
+**Never compute a line number — read it back.** Anchor each pointer on a distinctive
+fragment of the line itself and let `grep -n` report where it sits. One call, alternation
+of one anchor per pointer, each unique in the file, so the anchor→line mapping is
+unambiguous:
+
+```bash
+grep -n "if not render_missing:\|reused = existing.get\|for chunk in _chunked" video_clips.py
+```
+
+The failure this prevents: you already have the file's contents from a windowed read that
+carried no numbers — `sed -n '150,404p'`, a paged Read, a heredoc — and you add offsets to
+the range start by hand. Error accumulates over a couple hundred lines, and every pointer
+downstream of it is wrong by a different amount, so the list looks plausible and lands 5-10
+lines off. `grep -n`, `rg -n`, and Read's `cat -n` prefixes are all trustworthy; arithmetic
+on a window is not, and neither is memory of a number you saw earlier in the conversation.
+
+Cheap to verify, so verify: re-grep every anchor before pushing rather than pushing and
+correcting. Corrections cost the user a jump to the wrong place and their trust in the rest
+of the list.
+
 Order entries most-relevant first. `text` is the one-line reason the location matters.
 
 ```bash
@@ -131,10 +151,10 @@ the line numbers are only as good as the working copy they were read from.
 - Pushing replaces the current quickfix list. Ask before overwriting only when you chose the
   session yourself and the user may be mid-review. A session the user named is one they have
   asked you to write to.
-- Quickfix addresses physical lines, not records. When pointing into a file where those may
-  not be 1:1 — a CSV whose quoted fields can hold newlines, a log with wrapped entries — read
-  the numbers off the real file with `grep -n` instead of counting records. Nothing about the
-  socket bears on this; it is a property of the target, so it survives every shortcut above.
+- Quickfix addresses physical lines, not records. A CSV whose quoted fields can hold
+  newlines, or a log with wrapped entries, breaks the 1:1 — row N is not line N. Step 3's
+  read-it-back rule handles this too; what differs here is the *unit*, not the arithmetic,
+  and it is a property of the target rather than of the socket.
 
 ## When to skip
 
