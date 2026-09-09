@@ -1,0 +1,216 @@
+#!/usr/bin/env python3
+# md2csv -- extract a GFM markdown table and print it as CSV.
+#
+# Written for importing worklog tables into Google Sheets, where exactly two
+# things break the import: markdown link syntax (Sheets shows [x](y) verbatim)
+# and picking the wrong table out of a long journal file. Everything else here
+# is just GFM pedantry -- escaped pipes, missing outer pipes, ragged rows.
+#
+# Usage:
+#   md2csv FILE [-n N | -l LINE] [--links MODE] [--tsv]
+#   md2csv FILE --list
+#   md2csv < FILE            reads stdin too
+#
+# Examples:
+#   md2csv Journal/2026-09-01.md > aev.csv    single table -> CSV, upload that
+#   md2csv Journal/2026-09-01.md -l 19        the table containing line 19
+#   md2csv 'vim dump aug20.md' --list         what tables are in here?
+#   md2csv notes.md --tsv | osc52-copy        paste straight into a sheet
+#
+# Do NOT run this as an nvim range filter (:%!md2csv). A filter *replaces* the
+# range with the output, so on success your markdown table becomes CSV in the
+# middle of your notes, and 'shellredir' (>%s 2>&1) means any error message
+# lands in the buffer too. Use :w !, which feeds the range to stdin and leaves
+# the buffer alone:
+#
+#   :'<,'>w !md2csv > ~/aev.csv
+#   :w !md2csv -l 19 > ~/aev.csv
+#
+# As a belt-and-braces measure, when input came from stdin an error replays the
+# input to stdout unchanged, so a filter is a no-op rather than a data loss.
+# That cannot save you from exit 127 -- if the command is not found, bash, not
+# md2csv, writes into your buffer.
+#
+# A file with more than one table and no -n/-l is an error, not a guess: it
+# prints the same listing as --list and exits. Silently exporting table 1 of 4
+# is the failure mode that wastes your time downstream, in Drive, not here.
+#
+# --links decides what happens to [text](dest):
+#   url        (default) keep the destination -- Sheets auto-links a bare URL
+#   text       keep the label, drop the destination
+#   hyperlink  =HYPERLINK("dest","text"), clickable *and* labelled, but a
+#              formula only works when the cell is nothing but the link, so
+#              mixed cells fall back to url mode
+#   keep       leave the markdown alone
+#
+# [[wikilinks]] always collapse to their alias, else the page path. There is no
+# Sheets rendering of a wikilink worth preserving, so this needs no mode.
+
+import argparse
+import csv
+import re
+import sys
+
+INLINE_LINK = re.compile(r"!?\[([^\]]*)\]\(([^)\s]*)\)")
+WIKILINK = re.compile(r"\[\[([^\]|]+?)(?:\|([^\]]*))?\]\]")
+DELIM_CELL = re.compile(r":?-+:?")
+
+
+# Set to the raw stdin text once read, so die() can hand it back untouched.
+_stdin_text = None
+
+
+def die(msg):
+	if _stdin_text is not None:
+		# Flush before touching stderr: nvim's 'shellredir' is >%s 2>&1, so the
+		# two streams land in one buffer and only an explicit flush keeps the
+		# replayed input ahead of the error instead of interleaved with it.
+		sys.stdout.write(_stdin_text)
+		sys.stdout.flush()
+	sys.stderr.write("md2csv: %s\n" % msg)
+	raise SystemExit(2)
+
+
+def split_row(line):
+	"""Split one table line into stripped, unescaped cells."""
+	s = line.strip()
+	if s.startswith("|"):
+		s = s[1:]
+	if s.endswith("|") and not s.endswith("\\|"):
+		s = s[:-1]
+	return [c.strip().replace("\\|", "|") for c in re.split(r"(?<!\\)\|", s)]
+
+
+def is_row(line):
+	# GFM allows up to 3 leading spaces and omitted outer pipes, but a row
+	# always contains at least one unescaped pipe.
+	return re.match(r"^ {0,3}\S", line) is not None and re.search(r"(?<!\\)\|", line) is not None
+
+
+def is_delim(cells):
+	return bool(cells) and all(DELIM_CELL.fullmatch(c) for c in cells)
+
+
+def find_tables(lines):
+	"""Every (start_lineno, header_cells, body_rows) in the file. 1-based lines."""
+	tables, i, n = [], 0, len(lines)
+	while i < n - 1:
+		if is_row(lines[i]) and is_row(lines[i + 1]) and is_delim(split_row(lines[i + 1])):
+			header = split_row(lines[i])
+			body, j = [], i + 2
+			while j < n and is_row(lines[j]):
+				body.append(split_row(lines[j]))
+				j += 1
+			tables.append((i + 1, header, body))
+			i = j
+		else:
+			i += 1
+	return tables
+
+
+def sheets_escape(s):
+	return s.replace('"', '""')
+
+
+def convert_links(cell, mode):
+	cell = WIKILINK.sub(lambda m: m.group(2) if m.group(2) else m.group(1), cell)
+	if mode == "keep":
+		return cell
+	if mode == "hyperlink":
+		m = INLINE_LINK.fullmatch(cell)
+		if m:
+			return '=HYPERLINK("%s","%s")' % (sheets_escape(m.group(2)), sheets_escape(m.group(1)))
+		# Mixed text and link: a formula cannot live inside prose, so fall through.
+	group = 1 if mode == "text" else 2
+	return INLINE_LINK.sub(lambda m: m.group(group), cell)
+
+
+def normalize(header, body):
+	"""GFM rules: pad short rows, drop cells past the header width."""
+	width = len(header)
+	ragged = 0
+	rows = []
+	for row in body:
+		if len(row) != width:
+			ragged += 1
+		rows.append((row + [""] * width)[:width])
+	if ragged:
+		sys.stderr.write("md2csv: %d row(s) did not match the %d-column header; padded/truncated\n" % (ragged, width))
+	return rows
+
+
+def describe(tables):
+	out = []
+	for k, (lineno, header, body) in enumerate(tables, 1):
+		cols = " / ".join(h or "-" for h in header[:4])
+		if len(header) > 4:
+			cols += " / ..."
+		out.append("  -n %d  line %d  %d rows x %d cols  %s" % (k, lineno, len(body), len(header), cols))
+	return "\n".join(out)
+
+
+def main():
+	ap = argparse.ArgumentParser(
+		prog="md2csv",
+		description="Extract a GFM markdown table and print it as CSV.",
+		epilog="See the comment header of this script for the --links tradeoffs.",
+	)
+	ap.add_argument("file", nargs="?", help="markdown file; omit to read stdin")
+	sel = ap.add_mutually_exclusive_group()
+	sel.add_argument("-n", type=int, metavar="N", help="use the Nth table (1-based)")
+	sel.add_argument("-l", type=int, metavar="LINE", help="use the table containing this line")
+	ap.add_argument(
+		"--links",
+		choices=["url", "text", "hyperlink", "keep"],
+		default="url",
+		help="what to do with [text](dest) (default: url)",
+	)
+	ap.add_argument("--tsv", action="store_true", help="tab-separated instead of comma")
+	ap.add_argument("--list", action="store_true", help="list the tables and exit")
+	args = ap.parse_args()
+
+	if args.file:
+		try:
+			text = open(args.file, encoding="utf-8").read()
+		except OSError as e:
+			die("%s: %s" % (args.file, e.strerror))
+	else:
+		global _stdin_text
+		text = _stdin_text = sys.stdin.read()
+	lines = text.lstrip("﻿").replace("\r\n", "\n").split("\n")
+
+	tables = find_tables(lines)
+	if not tables:
+		die("no markdown table found")
+
+	if args.list:
+		print("%d table(s):" % len(tables))
+		print(describe(tables))
+		return
+
+	if args.n is not None:
+		if not 1 <= args.n <= len(tables):
+			die("no table %d; file has %d\n%s" % (args.n, len(tables), describe(tables)))
+		chosen = tables[args.n - 1]
+	elif args.l is not None:
+		hits = [t for t in tables if t[0] <= args.l <= t[0] + 1 + len(t[2])]
+		if not hits:
+			die("no table contains line %d\n%s" % (args.l, describe(tables)))
+		chosen = hits[0]
+	elif len(tables) > 1:
+		die("%d tables here; pick one with -n or -l\n%s" % (len(tables), describe(tables)))
+	else:
+		chosen = tables[0]
+
+	_, header, body = chosen
+	w = csv.writer(sys.stdout, delimiter="\t" if args.tsv else ",", lineterminator="\n")
+	w.writerow([convert_links(c, args.links) for c in header])
+	for row in normalize(header, body):
+		w.writerow([convert_links(c, args.links) for c in row])
+
+
+if __name__ == "__main__":
+	try:
+		main()
+	except BrokenPipeError:
+		pass
