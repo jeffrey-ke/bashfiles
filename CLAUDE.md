@@ -87,6 +87,7 @@ What does need a manual step per work repo is identity: `.gitconfig` carries a p
 | `.bash_prompt` | The only place bash-git-prompt is sourced (three fallback locations), plus the `(VIM)` tag marking a shell spawned from inside vim/nvim |
 | `.bash_vars` | `EDITOR`/`GIT_EDITOR`, and `HISTCONTROL=ignoredups` overriding Ubuntu's stock `ignoreboth` |
 | `.bash_tools` | Shell integration for the installed tools: PATH, zoxide `cd`, the custom fzf Ctrl-T directory-hopping widget, `grab`'s Ctrl-G, yazi's `y` wrapper |
+| `.snippet_aliases` | A `key='value'` list of plaintext strings whose exact spelling isn't worth remembering (flag names, identifiers). Two consumers, one list: `.bashrc` sources it — unexported, so `$key` expands on the interactive command line without leaking into every child process — and `nvim/luasnippets/all.lua` reads the same file and emits one word-trigger snippet per key. `all` is LuaSnip's every-buffer filetype (`get_snippet_filetypes()` appends it, `util/util.lua:303`) and blink.cmp's luasnip source walks that same function, so the triggers reach the completion menu in *every* filetype with no ftdetect glue. `<leader>rs` (`:ReloadSnippets`) re-reads it; no installer re-run. Both parsers reject spaces around `=`, matching bash, so no line can work in nvim while silently failing in the shell. Written by hand, listed with `sl`, or set with `sa <key> <value>`, which rewrites the file *through* the `~` symlink (`awk` to a temp, then `cat >`) rather than with `sed -i` — `sed -i` replaces the path, which would orphan the edit in `$HOME` and silently stop it reaching git. `aa` has that bug on `~/.bash_aliases`. `sa`/`sl` read values by sourcing the file in a subshell rather than re-parsing it, so bash's own quote rules stay the single authority and only `all.lua` has to match them |
 | `.tmux.conf` | Prefix=Ctrl-Space, vim-style pane nav (hjkl / HJKL to swap), vi copy mode |
 | `.visidatarc` | Two layers. (1) Clipboard transport: the syscopy commands go to `tmux load-buffer -w -` inside tmux (tmux then emits OSC 52 to the attached client) or `bin/osc52-copy` outside it, because the stock `xclip` default writes the *remote* X clipboard and a headless ssh login has neither xclip nor `$DISPLAY`. (2) A vim layer: `y` cell / `yy` row / `Y` row (a `beforeExecHooks` state machine, since a bound key can never also act as a prefix — `mainloop.py:242` before `:248`); `:` command line taking literal text (not `exec-longname`, whose Enter takes the top *fuzzy* match), with `addcol-split` relocated to `g:`; `vim-`-namespaced verbs `:vs :sp :only :e (Tab-completes paths) :E :ls :b :bn `:bp :bd :q :qa :w` — namespaced because `getCommand` chases keystroke aliases first, so a longname `e` is unreachable behind the `e` key; a real side-by-side split via a `vd.setWindows` override (upstream is stacked-only); `Ctrl+W` as a window prefix (`hjklw` swap, `v`/`s` split, `c`/`o` close, `x` exchange); `Ctrl+D`/`Ctrl+U` half-page. Every displaced binding is deliberate: `Sheet` is `TableSheet` (`sheets.py:1092`) and `addCommand` overwrites the stock slot *silently*. The keybind manual, the testing rig, and 12 traps are in `.docs_claude/plans/completed/visidata-clipboard-and-vim-keybindings.md` |
 | `nvim/init.lua` | Kickstart.nvim fork — ~1350-line Lua config; read top-to-bottom to understand plugin/keymap layout. Forked from upstream at `3338d39` (2025-05-22); upstream has since dropped lazy.nvim for `vim.pack`, so it can no longer be merged — see the divergence note below |
@@ -110,6 +111,25 @@ sibling pane (`prefix + C-x` into a new window), via `tmux-fork-claude.sh`. It r
 pane → session ID by looking up `~/.claude/sessions/<pid>.json`, then delegates to the
 `fork-conversation-pane` skill's `fork-pane.sh`, so it is the same fork the skill
 performs with none of the model round trip. See the note below for the traps.
+
+`prefix + A` keeps this pane's Claude conversation for posterity: a popup editor takes a
+folder name and a note on why it is worth keeping, then the transcript (plus its
+`tool-results`/`subagents` sidecar) is copied under `~/conversations/<name>/`.
+`prefix + C-a` is an fzf picker over what you kept. A save is a **snapshot**, so Enter
+resumes it by giving the frozen transcript its own session id (`ccresume` rewrites
+`sessionId` and installs it beside the original) — you continue from the point you saved
+and the live conversation is untouched. `ctrl-r` resumes the live thread instead, `ctrl-v`
+reads the snapshot without resuming (`ccview`). Five composable scripts in `bin/`
+— `ccpaths` (uuid → paths), `ccstash` (paths → named folder), `ccsave` (the `prefix A`
+wrapper), `ccresume`, `ccview`, `ccfind` — usable individually from any shell. `ccsave` reuses
+`tmux-fork-claude.sh --resolve` for pane → session, so that lookup exists once. There is
+deliberately no index file and no symlink into Claude's own storage; the motivation is
+`cleanupPeriodDays`, which defaults to 30 days and is silently deleting transcripts.
+Override the archive root with `$CC_ARCHIVE`; every run logs to `~/.cache/ccsave.log`
+(`$CCSAVE_LOG`), which is the place to look when a popup closes on an error. Pressing `prefix + A` again on an
+already-kept conversation refreshes it — the name and reason come back prefilled — so a
+name clash only happens between two *different* conversations. See the plan doc for what
+was rejected and for the follow-up after first use.
 
 ## Plans
 
@@ -153,6 +173,7 @@ check this directory directly before re-investigating a "why is X slow / broken"
 | `grab-macos-support-roadmap.md` | The four macOS sub-projects for `grab`/dotfiles and what's still open |
 | `nvim-kickstart-upstream-divergence.md` | Why `nvim/` can't be merged from upstream kickstart any more, why nvim-treesitter is pinned to `master`, and the three ways out |
 | `tmux-osc11-background-query.md` | Why nvim / Claude Code pick the wrong light/dark mode inside tmux: tmux answers OSC 11 from the pane's own `window-style` background rather than forwarding to the terminal |
+| `claude-code-fullscreen-scrollback.md` | Why tmux copy mode / `capture-pane` see only the visible frame of a Claude Code pane (fullscreen renderer draws to the alternate screen, `history_size=0`), and the `Ctrl+o` `{`/`}` per-exchange navigation that replaces a tmux binding |
 | `claude-session-tmux-pane-lookup.md` | How a tmux pane resolves to the Claude session running in it (`~/.claude/sessions/<pid>.json`), and the four traps: `sdk-cli` one-shots, no `TMUX_PANE` under `run-shell`, `read` exiting 1 on the missing trailing newline, no `/proc` on macOS |
 | `rg-over-ssh-reads-stdin.md` | Why a remote `rg` finds nothing on a file that clearly matches — no path argument means it searches stdin, which `ssh host cmd` leaves empty — and the two different silent-empty modes of a remote grep |
 | `silverbullet-space-outside-the-browser.md` | What editing `~/worklog` in nvim can and cannot reach: no server-side index (disk is the truth), `Library/Std/*` pages that exist only inside the binary, `index.md` as Space Lua rather than links, wikilink resolution rules, and why `sbj` runs nvim over ssh instead of `scp://` |

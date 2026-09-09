@@ -34,6 +34,7 @@ When a plan is added, copied, moved, renamed, or deleted:
 
 ## Chronological index
 
+- **2026-08-26** — [claude-conversation-keep-and-resume.md](plans/completed/claude-conversation-keep-and-resume.md) `bin/ccpaths`, `bin/ccstash`, `bin/ccsave`, `bin/ccresume`, `bin/ccfind`, `.tmux.conf`
 - **2026-08-19** — [dir-aliases-every-nav-entry-point.md](plans/completed/dir-aliases-every-nav-entry-point.md) `.bash_tools`
 - **2026-08-19** — [visidata-clipboard-and-vim-keybindings.md](plans/completed/visidata-clipboard-and-vim-keybindings.md) `.visidatarc`, `bin/osc52-copy`
 - **2026-08-18** — [tmux-nvim-inactive-pane-dimming.md](plans/completed/tmux-nvim-inactive-pane-dimming.md) `.tmux.conf`, `nvim/init.lua`
@@ -602,6 +603,43 @@ When a plan is added, copied, moved, renamed, or deleted:
 > - `+ fgc()` — `~/dotfiles/.functions.sh`, appended after `gpu2()`
 
 ## 7. Claude Code Integration
+
+### [claude-conversation-keep-and-resume.md](plans/completed/claude-conversation-keep-and-resume.md)
+`~/dotfiles/bin/ccpaths`, `~/dotfiles/bin/ccstash`, `~/dotfiles/bin/ccsave`, `~/dotfiles/bin/ccresume`, `~/dotfiles/bin/ccview`, `~/dotfiles/bin/ccfind`, `~/dotfiles/.tmux.conf` · 2026-08-26
+> `prefix A` files the Claude conversation running in this pane under a name you choose,
+> with a note on why it is worth keeping; `prefix C-a` is an fzf picker that finds one and
+> resumes it. Five small scripts composed by a pipe — `ccpaths` (uuid → the paths Claude
+> keeps, printing only those that exist), `ccstash` (stdin paths → one named folder, and it
+> owns the archive root so it can never write a stray folder), `ccsave` (pane → uuid via
+> `tmux-fork-claude.sh --resolve`, then a popup editor, then the pipe), `ccresume` (the
+> inverse: copy back to the recorded `project_dir`, then `claude --resume`), and `ccfind`.
+> Motivated by `cleanupPeriodDays`: unset means 30 days, and this machine had 129
+> transcripts with none older than that — history was being deleted silently.
+> Deliberately a **copy**, not the earlier design's symlink-into-`~/.claude/projects`: that
+> bought the in-app `/resume` picker at the cost of an atomic-swap dance, a `relink` repair
+> command, and an unverified assumption about Claude following symlinks during session
+> discovery. `ccrg` went with it — its JSONL renderer existed only to grep transcript
+> *bodies*, and `why.md` is small and greppable with plain `rg`. There is no index file:
+> `ccfind` recomputes its listing from `*/meta.yaml` every time, so nothing can go stale.
+> Verified that Claude appends transcripts in place (inode unchanged across two samples of
+> a live session while the size grew), which is what makes archiving a *running*
+> conversation sound. Names are never auto-generated, for the reason the old plan gave.
+>
+> **Key changes:**
+> - `+ bin/ccpaths` — uuid → transcript + `tool-results`/`subagents` sidecar (+ `file-history` with `-a`); finds the transcript by glob because the project-dir slug maps both `/` and `.` to `-` and does not round-trip
+> - `+ bin/ccstash` — copies stdin's paths into `$CC_ARCHIVE/<name>/` with `meta.yaml` (mechanical fields only), `why.md`, `first-prompt.txt`; stages in a temp sibling and renames, and trims an unterminated final line left by copying mid-append
+> - `+ bin/ccsave` — the wrapper; editor runs *before* any copying so `:cq` needs no rollback
+> - `+ bin/ccresume` — restores to the recorded `project_dir`, never overwriting a transcript that is already there
+> - `+ bin/ccfind` — fzf; `--list` for piping without a terminal. `--with-nth` was tried and dropped: it changes what fzf *matches*, not just what it shows
+> - `~ bind-key A` / `bind-key C-a` — `.tmux.conf` — both previously unbound; the popup is created by the binding, since a `display-popup -E` issued from `run-shell` returns before the editor exits
+> - Free text (`why.md`) is kept out of `meta.yaml` so nothing has to escape prose into YAML
+> - `ccsave` captures `ccpaths` output whole and slices the first line rather than `| head -1`: with `set -o pipefail`, a session that *has* a sidecar makes head close the pipe, SIGPIPE ccpaths, and fail the pipeline — reported to the user as a bogus "no transcript". Same shape audited out of `ccfind`'s 600-byte truncation and three `sed | head -1` key lookups
+> - A save is a **snapshot**, and resuming one means re-identifying it: `ccresume` copies the frozen transcript to a fresh uuid, rewrites `"sessionId"` (the only field carrying it) and resumes that, so the saved state opens as its own continuable session and the live thread is untouched. Before this, resume-by-uuid could only ever open the live copy — the archived bytes were frozen but unreachable, so reopening a snapshot handed you post-snapshot turns. Verified with `claude -p --resume <new-uuid>`: Claude accepts a transcript it did not create. `-l` resumes live; a pruned original lets the snapshot reclaim its own uuid; enter twice reuses an untouched derived session rather than littering
+> - `+ bin/ccview` renders a snapshot as readable text (ctrl-v in the picker) for reflecting rather than continuing
+> - `ccstash`'s opening-prompt jq slices each string to 400 chars *before* any regex runs, and drops `-s`: a 720 KB transcript line (big paste/tool result) made `gsub("\\s+"; " ")` take minutes, which presented as `prefix A` doing nothing — the popup hung, and killing it let the cleanup trap erase the staging dir. 0.15 s after the fix, plus a `timeout 15` cap. Every run now logs to `~/.cache/ccsave.log`, because three failures in a row were invisible inside a closing popup
+> - Refreshing an entry (`prefix A`, name unchanged) carries over every file `ccstash` does not itself write — `ccresume`'s `derived.log` and any hand-added notes — because staging-plus-`rm -rf` had been destroying them; a `-f` replace by a different conversation still inherits nothing
+> - A session may be filed under several names (you keep talking and it becomes a different conversation): the template lists every entry already holding it, states "leave line 1 = update / change line 1 = second entry", prefills the most recently saved name, and the status line says `updated X` vs `kept as X (also kept as Y)` — the earlier wording made a second entry look impossible
+> - Follow-up after first real use: `die` holds the popup open and the binding ends in `; true`, because `run-shell`'s own "returned 1" notice overwrites the status-line message that explains the failure; `:cq`/blank name exit 0 since declining to save is not an error; re-saving the same session under the same name is a refresh that keeps the existing `why.md`, and `ccsave` prefills the name and reason when the conversation is already kept
 
 ### [tmux-prefix-x-fork-claude-conversation.md](plans/completed/tmux-prefix-x-fork-claude-conversation.md)
 `~/dotfiles/.tmux.conf`, `~/dotfiles/tmux-fork-claude.sh`, `~/dotfiles/claude-skills/fork-conversation-pane/` · 2026-08-18
