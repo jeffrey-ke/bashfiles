@@ -11,7 +11,7 @@ git -C "$DOTFILES" submodule update --init --recursive ||
 	echo "warning: submodule init failed (missing SSH key or offline?) — nvim config and commentstrip are unavailable until you re-run it"
 
 # Same name in the repo and in $HOME (modulo the leading dot already present).
-files=(.bash_aliases .functions.sh .bash_prompt .bash_tools .bash_vars .pylintrc .tmux.conf .vimrc .gitconfig .visidatarc)
+files=(.bash_aliases .functions.sh .bash_prompt .bash_tools .bash_vars .snippet_aliases .pylintrc .tmux.conf .vimrc .gitconfig .visidatarc)
 for f in "${files[@]}"; do
 	ln -sf "$DOTFILES/$f" "$HOME/$f"
 done
@@ -39,7 +39,7 @@ done
 
 [ -f "$BASHRC" ] || touch "$BASHRC"
 
-sources=(.bash_aliases .functions.sh .bash_prompt .bash_tools .bash_vars)
+sources=(.bash_aliases .functions.sh .bash_prompt .bash_tools .bash_vars .snippet_aliases)
 for s in "${sources[@]}"; do
 	line="[ -f \"\$HOME/$s\" ] && source \"\$HOME/$s\""
 	# Second grep catches a pre-existing block in any form — both our own appended

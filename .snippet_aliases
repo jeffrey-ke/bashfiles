@@ -1,0 +1,34 @@
+# Text aliases: short key -> the exact string you can never remember the spelling of.
+#
+# Two consumers, one list:
+#   * bash sources this file (run.sh appends the line to .bashrc), so `$key`
+#     expands anywhere on the command line. Deliberately NOT exported -- these
+#     are typing aids for an interactive shell, not environment for every child.
+#   * nvim/luasnippets/all.lua reads it and emits one snippet per key, active in
+#     every filetype. Type the key, press <CR> to accept from the blink menu.
+#
+# Format is a bash assignment, because that is the one key=value shape that is
+# both broadly readable and directly executable:
+#
+#     key='value'
+#
+# Quote the value. Unquoted works when there is nothing to quote, and a leading
+# `export ` is tolerated so a line lifted from the machines/<host>.sh path
+# registry pastes in unchanged. `#` starts a comment. On a duplicate key the
+# last one wins -- bash's rule, and all.lua matches it.
+#
+# No spaces around the `=`: bash reads `k = v` as the command `k` and `k= v` as
+# an empty assignment plus the command `v`. all.lua rejects both for the same
+# reason, so a line can never work in nvim while failing in the shell.
+#
+# Prefer single quotes. bash expands `$var` and escapes inside "..." while
+# all.lua takes them literally, so double quotes are the one place the two
+# readers can disagree. `sa` only ever writes single quotes.
+#
+# `sa <key> <value>` (in .functions.sh) appends or updates an entry without
+# opening this file, and sets it in the calling shell at the same time.
+#
+# After editing: `<leader>rs` in nvim (:ReloadSnippets) and a new shell (or
+# `source ~/.snippet_aliases`) for bash. No installer re-run needed.
+
+aevRbf_toggle='enable_aev_intersection_yield'

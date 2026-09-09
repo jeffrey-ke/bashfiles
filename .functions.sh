@@ -107,6 +107,16 @@ aa() {
 	if [ ! -f "$alias_file" ]; then
 		alias_file="$HOME/.bashrc"
 	fi
+	# Resolve to the file in the repo before writing. run.sh points
+	# ~/.bash_aliases at dotfiles/.bash_aliases, and `sed -i` below does not edit
+	# in place -- it renames a temp file over its target -- so editing the *link*
+	# path replaces the link with a regular file. Nothing looks broken when that
+	# happens (the shell still sources it), but the edit never reaches git and
+	# every later `aa` accumulates outside the repo until the next run.sh `ln -sf`
+	# silently discards the lot. Renaming a regular file over a regular file is
+	# fine: the link resolves by path, so it still finds the new content.
+	# Degrades to the old behaviour if realpath is missing rather than failing.
+	alias_file="$(realpath -- "$alias_file" 2>/dev/null || printf '%s' "$alias_file")"
 
 	# Check if the alias already exists and update it, otherwise append it
 	if grep -q "alias $alias_name=" "$alias_file"; then
@@ -702,6 +712,150 @@ _pr_complete() {
 complete -F _pr_complete to
 complete -F _pr_complete prm
 
+# --- snippet alias registry: short key -> a plaintext string you can't spell ---
+# Mechanism here; data in ~/.snippet_aliases. Unlike the path registry above this is
+# NOT machine-specific -- a flag name is spelled the same everywhere -- so the data
+# lives in one git-tracked file rather than in machines/<hostname>.sh. That file has
+# two readers: .bashrc sources it (so `$key` expands on the command line, unexported)
+# and nvim/luasnippets/all.lua parses it into a snippet active in every filetype.
+
+_sa_file() { printf '%s\n' "$HOME/.snippet_aliases"; }
+
+# The one regex all three helpers key off. `[^ \t]` after the `=` mirrors what bash
+# accepts and what all.lua enforces: `k = v` runs `k` as a command, `k= v` assigns
+# empty and runs `v`, so neither is an entry. `export` is tolerated, not required.
+_sa_re='^[ \t]*(export[ \t]+)?%s=[^ \t]'
+
+# Echo the registered value for $1 (empty if none). bash itself does the parsing:
+# sourcing in a subshell is the only reader guaranteed to agree with what the
+# interactive shell sees, and it keeps the quote rules (including the `'\''` idiom
+# `sa` writes) in one place instead of a third copy alongside awk and all.lua.
+# Last assignment wins, because that is simply what sourcing does.
+_sa_get() {
+	local file
+	file="$(_sa_file)"
+	[ -f "$file" ] || return 0
+	(
+		# The subshell inherits the caller's environment, so without this an
+		# ordinary env var would come back looking like a registered alias --
+		# and `sa` would report an update where it is really a first register.
+		unset -v "$1" 2>/dev/null
+		source "$file" 2>/dev/null
+		printf '%s' "${!1-}"
+	)
+}
+
+# Echo `key<TAB>value` for every registered alias, in first-appearance order with
+# the last value, matching what a shell that sourced the file would hold. One
+# subshell for the whole file rather than one _sa_get per key.
+_sa_pairs() {
+	local file
+	file="$(_sa_file)"
+	[ -f "$file" ] || return 0
+	(
+		source "$file" 2>/dev/null
+		while IFS= read -r k; do
+			printf '%s\t%s\n' "$k" "${!k-}"
+		done < <(_sa_names)
+	)
+}
+
+# Echo registered keys, one per line (for completion).
+_sa_names() {
+	local file
+	file="$(_sa_file)"
+	[ -f "$file" ] || return 0
+	awk -v re="$(printf "$_sa_re" "[a-zA-Z_][a-zA-Z0-9_]*")" '
+		$0 ~ re {
+			line=$0; sub(/^[ \t]*/, "", line); sub(/^export[ \t]+/, "", line)
+			print substr(line, 1, index(line, "=")-1)
+		}' "$file" | awk '!seen[$0]++'
+}
+
+sa() {
+	if [ $# -ne 2 ]; then
+		echo "Usage: sa <key> <value>   (text alias for \$key in bash and a snippet in nvim)"
+		return 1
+	fi
+	local name="$1" value="$2"
+	if ! [[ "$name" =~ ^[a-zA-Z_][a-zA-Z0-9_]*$ ]]; then
+		echo "Error: '$name' is not a valid variable name."
+		return 1
+	fi
+	if [ -z "$value" ]; then
+		echo "Error: value is empty (nothing to expand to)."
+		return 1
+	fi
+	# One entry is one line in both readers. A newline would split it, leaving the
+	# tail as a stray line that bash then tries to run as a command.
+	case "$value" in
+	*$'\n'*)
+		echo "Error: value contains a newline; one alias must fit on one line."
+		return 1
+		;;
+	esac
+
+	local previous
+	previous="$(_sa_get "$name")"
+	if [ -z "$previous" ] && [ -n "${!name+set}" ]; then
+		echo "Warning: '$name' shadows an existing shell variable (was: ${!name})."
+	fi
+
+	# printf -v rather than `declare -g` (bash 4.2+): macOS still ships bash 3.2.
+	# Unexported on purpose -- see the header comment on ~/.snippet_aliases.
+	printf -v "$name" '%s' "$value"
+
+	local file
+	file="$(_sa_file)"
+	if [ ! -f "$file" ]; then
+		echo "Warning: $file did not exist; creating it outside the repo. Run ./run.sh to symlink it."
+		printf '# Text aliases: key=value, read by .bashrc and nvim/luasnippets/all.lua.\n' >"$file"
+	fi
+	local esc="${value//\'/\'\\\'\'}" line
+	line="$name='$esc'"
+	local tmp
+	tmp="$(mktemp -- "${file}.XXXXXX")" || return 1
+	# First match is rewritten, later duplicates dropped, so this also collapses a
+	# hand-edited dupe. `cat >` at the end, never `sed -i`/`mv`: those replace the
+	# path, and $file is the ~/.snippet_aliases symlink into the repo -- rewriting
+	# it in place is what keeps the edit landing in git instead of orphaning it in
+	# $HOME. (`aa` gets this wrong on ~/.bash_aliases.)
+	awk -v re="$(printf "$_sa_re" "$name")" -v ln="$line" '
+		$0 ~ re { if (!done) { print ln; done = 1 } ; next }
+		{ print }
+		END { if (!done) print ln }' "$file" >"$tmp" && cat -- "$tmp" >"$file"
+	rm -f -- "$tmp"
+
+	if [ -n "$previous" ]; then
+		echo "Updated \$$name: '$previous' -> '$value'"
+	else
+		echo "Registered \$$name -> '$value'"
+	fi
+	echo "Use: echo \$$name   or type '$name' in nvim (any filetype) and press Enter."
+	echo "This shell has it now; nvim needs <leader>rs, other shells a restart."
+}
+
+sl() {
+	local pairs
+	pairs="$(_sa_pairs)"
+	if [ -z "$pairs" ]; then
+		echo "No text aliases registered yet."
+		echo "Register one with: sa <key> <value>"
+		return 0
+	fi
+	# Tab-separated, like `pl`: the separator has to be something a value can
+	# contain freely, and these values are full of spaces.
+	printf '%s\n' "$pairs" | column -t -s $'\t'
+}
+
+_sa_complete() {
+	# Keys on the first argument only -- the second is free text, not a key.
+	[ "$COMP_CWORD" -eq 1 ] || return 0
+	local cur="${COMP_WORDS[COMP_CWORD]}"
+	COMPREPLY=($(compgen -W "$(_sa_names)" -- "$cur"))
+}
+complete -F _sa_complete sa
+
 # --- artifact registry: dataset / asset / checkpoint over HF (see `art`) ---
 # Thin wrappers over the `art` tool (~/dotfiles/bin/art, on PATH). Each namespace
 # is one HF repo; `art` reads the nearest .artifacts.yaml up-tree. ls/pull/push.
@@ -772,10 +926,64 @@ ugq() {
 	[ -n "$out" ] || return 0
 	nvim -q <(printf '%s\n' "$out") -c 'cwindow'
 }
+# fzf-pick a file and open it in nvim; with an argument, seed fd with it as a
+# filename pattern. The selection travels by command substitution, not a pipe
+# into xargs: GNU xargs redirects its child's stdin to /dev/null (that is what
+# -o exists to undo), so nvim would come up without a terminal. fzf draws on
+# /dev/tty regardless, so capturing its stdout costs nothing, and $? is fzf's
+# own status here -- inside a pipeline it is not, since the stages run
+# concurrently. 1 (no match) and 130 (Esc/Ctrl-C) both fall out through
+# || return.
 fvim() {
+	local sel
 	if [[ -n "$1" ]]; then
-		fd --follow -H --no-ignore "$1" | fzf | xargs nvim
+		sel=$(fd --follow -H --no-ignore --type f "$1" | fzf) || return
 	else
-		fd --type f | fzf | xargs nvim
+		sel=$(fd --type f | fzf) || return
 	fi
+	[[ -n "$sel" ]] && nvim "$sel"
+}
+
+# A scratch file opened in nvim, its path echoed on stdout for a caller to pick
+# up. `vimtemp md` suffixes it `.md` so filetype detection works -- and with it
+# highlighting, the luasnippets for that filetype, and conform's formatter. Bare
+# `vimtemp` leaves it extension-less, for when the content should decide: nvim
+# reads a shebang when there is no suffix to go on. A leading dot is tolerated,
+# so `vimtemp .md` and `vimtemp md` are the same request.
+#
+# nvim is handed the terminal explicitly, because the path goes out on stdout and
+# a caller therefore runs this inside `$(...)`. nvim's stdout *is* its UI --
+# escape sequences and screen contents, not messages -- and unlike fzf it does
+# not fall back to /dev/tty when stdout is a pipe. Without the redirection the
+# command substitution swallows the whole TUI: a blank screen, an invisible nvim
+# still reading keys from the tty, and kilobytes of escapes in the captured
+# path. Same trap as the pager in bgfind.
+vimtemp() {
+	local ext=${1#.}
+	local file
+	if [[ -n "$ext" ]]; then
+		file=$(mktemp -t "vimtemp.XXXXXX.$ext") || return 1
+	else
+		file=$(mktemp -t "vimtemp.XXXXXX") || return 1
+	fi
+	if ! nvim "$file" </dev/tty >/dev/tty; then
+		rm -f "$file"
+		return 1
+	fi
+	echo "$file"
+}
+
+# Write a job in nvim, then hand it to bgrun under a name. `sh` is explicit
+# rather than left to vimtemp's default: bgrun reads the file as shell either
+# way (it copies the contents into cmd.sh and checks them with `bash -n`), but
+# the extension is what gets the buffer syntax highlighting and the sh snippets
+# while you are still writing it.
+vimrun() {
+	if [[ $# -ne 1 ]]; then
+		echo "Usage: vimrun <session-name>   (write a job in nvim, then bgrun it)"
+		return 1
+	fi
+	local file
+	file=$(vimtemp sh) || { echo "vimtemp failed; nothing spawned" >&2 && return 1; }
+	bgrun -n "$1" "$file"
 }
