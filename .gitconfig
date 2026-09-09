@@ -20,6 +20,13 @@
     rc = rebase --continue
     mt = mergetool
 	cof = config
+	rp = rev-parse
+	foreachref = for-each-ref
+	foreref = for-each-ref
+	mb = merge-base
+	mybrs = !git for-each-ref --sort=-committerdate --format='%(refname:short) %(committername)' refs/heads/ | grep Jeffrey
+	graph = log --graph --oneline --decorate
+	cp = cherry-pick
 [mergetool]
 	prompt = false
 [core]

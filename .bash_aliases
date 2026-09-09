@@ -79,3 +79,5 @@ alias lsla='ls -la'
 alias fresh="source ~/.bashrc"
 alias lg='lazygit'
 alias vd='uv run --with visidata vd'
+alias gsince='git log --graph --oneline --decorate'
+alias sapt='sudo apt install'
