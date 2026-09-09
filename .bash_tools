@@ -147,6 +147,50 @@ if command -v fzf >/dev/null 2>&1; then
 	bind -m emacs-standard -x '"\C-t": _fzf_ctrl_t_widget'
 	bind -m vi-command -x '"\C-t": _fzf_ctrl_t_widget'
 	bind -m vi-insert -x '"\C-t": _fzf_ctrl_t_widget'
+
+	# Ctrl-R over the *shared* history file instead of this shell's in-memory list.
+	#
+	# fzf's stock __fzf_history__ feeds fzf from `builtin fc -lnr`, which reads only
+	# the current shell's list — seeded once at startup and never refreshed, because
+	# .bash_vars deliberately omits `history -r` to keep per-session up-arrow order
+	# intact. So a command typed in another tmux pane stays invisible here until this
+	# shell is restarted, which is the entire problem this replaces.
+	#
+	# The subshell runs `history -c; history -r` to parse ~/.bash_history with bash's
+	# own reader, the only thing that regroups multi-line entries correctly (via the
+	# #<epoch> markers HISTTIMEFORMAT writes). A subshell gets a *copy* of the history
+	# list, so the `history -c` in there cannot reach this shell's list and up-arrow
+	# is untouched — verified, not assumed.
+	#
+	# This session's list is concatenated first so its lines win dedup and anything
+	# not yet flushed still shows. perl splits on the "\n\t" that `fc` puts between
+	# entries, drops the leading space/`*` marker, chomps the final entry's trailing
+	# newline — without which it differs from its own duplicate and escapes dedup —
+	# and emits NUL-delimited records for --read0.
+	#
+	# Reimplemented rather than wrapped: __fzf_history__ has to run in this shell to
+	# set READLINE_LINE, so its candidate source can't be swapped from outside.
+	# Losing its shift-delete-to-forget binding is deliberate; deleting one pane's
+	# entry from a file every other pane is appending to isn't well defined.
+	_fzf_ctrl_r_shared() {
+		local output
+		output=$(
+			set +o pipefail
+			{
+				builtin fc -lnr -2147483648
+				(builtin history -c; builtin history -r; builtin fc -lnr -2147483648)
+			} |
+				command perl -n -l0 -e 'BEGIN { getc; $/ = qq(\n\t) } s/^[ *]//; s/\n+\z//; print if !$seen{$_}++' |
+				FZF_DEFAULT_OPTS=$(__fzf_defaults "" "--scheme=history --highlight-line --bind=ctrl-r:toggle-sort --wrap-sign '"$'\t'"↳ ' ${FZF_CTRL_R_OPTS-} --read0 +m") \
+					FZF_DEFAULT_OPTS_FILE='' $(__fzfcmd) --query "$READLINE_LINE"
+		)
+		[ -n "$output" ] || return
+		READLINE_LINE=$output
+		READLINE_POINT=0x7fffffff
+	}
+	bind -m emacs-standard -x '"\C-r": _fzf_ctrl_r_shared'
+	bind -m vi-command -x '"\C-r": _fzf_ctrl_r_shared'
+	bind -m vi-insert -x '"\C-r": _fzf_ctrl_r_shared'
 fi
 
 if command -v grab >/dev/null 2>&1; then

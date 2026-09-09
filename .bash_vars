@@ -31,6 +31,17 @@ shopt -s histappend
 HISTSIZE=100000
 HISTFILESIZE=200000
 
+# Write a #<epoch> marker before each history entry. Both effects are load-bearing
+# for the shared Ctrl-R in .bash_tools:
+#   - it makes the file self-delimiting, so a multi-line command round-trips as one
+#     entry instead of N. Bash can only regroup continuation lines when a timestamp
+#     marker tells it where the next entry begins; without markers `for i in 1 2 3`
+#     / `do echo $i` / `done` come back as three unrelated commands.
+#   - `history` output gains a timestamp column, which is the cheap way to tell when
+#     (and so from roughly where) a line came in.
+# Entries written before this carry no marker; bash reads a mixed file fine.
+export HISTTIMEFORMAT='%F %T '
+
 # Guarded because `fresh` re-sources .bashrc: without it each re-source prepends
 # another `history -a`. ${PROMPT_COMMAND[*]} reads correctly whether bash-git-prompt
 # left a string or an array, and the array branch mirrors .bash_prompt's own handling.
@@ -41,6 +52,24 @@ if [[ "${PROMPT_COMMAND[*]}" != *"history -a"* ]]; then
 		PROMPT_COMMAND="history -a;${PROMPT_COMMAND:+ $PROMPT_COMMAND}"
 	fi
 fi
+
+# `history -a` in PROMPT_COMMAND only flushes once a command has *finished* and the
+# next prompt is drawn. Anything long-running — or anything that parks in an editor,
+# `git rebase -i` above all — is therefore missing from the file, and so from every
+# other pane's Ctrl-R, for precisely as long as you are still inside it. A DEBUG trap
+# fires just *before* each top-level command, so it is on disk from the moment it
+# starts rather than the moment it ends.
+#
+# Not PS0='$(history -a)', which looks equivalent and is not: command substitution
+# runs in a subshell, so the append offset advances only there and PROMPT_COMMAND
+# re-appends the same line at the next prompt. Measured: every command landed in the
+# file twice. The DEBUG trap runs in this shell, so the offset advances once and the
+# later `history -a` finds nothing new.
+#
+# A DEBUG trap is not inherited by functions or subshells without `set -o functrace`,
+# so this costs one builtin call per interactive command — not one per line of every
+# function the prompt runs.
+trap 'history -a' DEBUG
 
 # bash-git-prompt is sourced by .bash_prompt alone. It used to be sourced here
 # and in the (now deleted) .setup as well, which meant three loads per shell.
