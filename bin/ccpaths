@@ -1,0 +1,71 @@
+#!/usr/bin/env bash
+# ccpaths -- print every path Claude Code keeps for one session, one per line.
+#
+# Read-only. It prints only paths that *exist*, so consumers need no per-kind
+# conditionals: a session with no sidecar simply produces one line.
+#
+# Usage:
+#   ccpaths <session-uuid> [-a]
+#
+#   -a   also print ~/.claude/file-history/<uuid>/ -- the /rewind store (file
+#        backups, ~150 KB/session). Useless for reading a conversation back,
+#        needed only if you want to un-edit files in a resumed session.
+#
+# Output order:
+#   ~/.claude/projects/<slug>/<uuid>.jsonl   the conversation itself
+#   ~/.claude/projects/<slug>/<uuid>/        tool-results/ + subagents/ sidecar
+#   ~/.claude/file-history/<uuid>/           only with -a
+#
+# ~/.claude/session-env/<uuid>/ is deliberately never printed: it is empty on
+# every session in this corpus.
+#
+# The <slug> is the session's cwd with both '/' and '.' replaced by '-', which
+# is lossy and does not round-trip (/home/jke/.claude/sessions becomes
+# -home-jke--claude-sessions). That is why this script *finds* the transcript by
+# glob rather than computing the slug, and why ccstash records the directory it
+# found instead of re-deriving it later.
+set -euo pipefail
+
+CLAUDE_HOME=${CLAUDE_CONFIG_DIR:-$HOME/.claude}
+
+die() { printf 'ccpaths: %s\n' "$*" >&2; exit 1; }
+
+all=0 uuid=""
+while [ $# -gt 0 ]; do
+	case $1 in
+	-a) all=1 ;;
+	-h | --help)
+		sed -n '2,/^set -euo/p' "$0" | sed 's/^# \?//; $d'
+		exit 0
+		;;
+	-*) die "unknown option $1 (try -h)" ;;
+	*) [ -z "$uuid" ] || die "expected one uuid, got '$uuid' and '$1'"; uuid=$1 ;;
+	esac
+	shift
+done
+
+[ -n "$uuid" ] || die "no session uuid given (try -h)"
+[[ $uuid =~ ^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$ ]] ||
+	die "not a session uuid: $uuid"
+
+shopt -s nullglob
+hits=("$CLAUDE_HOME"/projects/*/"$uuid.jsonl")
+shopt -u nullglob
+
+case ${#hits[@]} in
+0) die "no transcript for $uuid under $CLAUDE_HOME/projects/" ;;
+1) ;;
+*) die "$uuid appears in ${#hits[@]} project dirs; refusing to guess" ;;
+esac
+
+transcript=${hits[0]}
+printf '%s\n' "$transcript"
+
+sidecar=${transcript%.jsonl}
+[ -d "$sidecar" ] && printf '%s\n' "$sidecar"
+
+if [ "$all" = 1 ]; then
+	fh="$CLAUDE_HOME/file-history/$uuid"
+	[ -d "$fh" ] && printf '%s\n' "$fh"
+fi
+exit 0

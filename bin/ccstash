@@ -1,0 +1,236 @@
+#!/usr/bin/env bash
+# ccstash -- copy the paths on stdin into one named folder under $CC_ARCHIVE.
+#
+# Usage:
+#   ccpaths <uuid> | ccstash [-w WHYFILE] [-c CWD] [-f] <name>
+#
+#   -w FILE   prose explaining why this conversation is worth keeping; becomes
+#             why.md verbatim. Without it, why.md is a stub.
+#   -c CWD    the conversation's working directory, recorded for the resume.
+#   -f        overwrite a folder held by an *unrelated* session. Re-saving the
+#             same session under the same name is always allowed: it refreshes
+#             the copy and keeps the existing why.md if you supply no new one.
+#             So is saving a session ccresume derived from that entry's snapshot
+#             -- it is the same conversation, continued, and the entry follows it
+#             to the new id.
+#
+# Owns the archive root on purpose: it takes a *name*, never a destination, so
+# there is no way to call it and end up with a stray folder somewhere. Override
+# the root with $CC_ARCHIVE (default ~/conversations).
+#
+# Result:
+#   $CC_ARCHIVE/<name>/meta.yaml          mechanical fields only
+#   $CC_ARCHIVE/<name>/why.md             your words -- the thing you grep
+#   $CC_ARCHIVE/<name>/first-prompt.txt   auto-extracted, for pickers
+#   $CC_ARCHIVE/<name>/<uuid>.jsonl       the conversation, original basename
+#   $CC_ARCHIVE/<name>/<uuid>/            sidecar, if the session had one
+#
+# Free text lives in its own file rather than inside meta.yaml so that nothing
+# here has to escape arbitrary prose into YAML; every value in meta.yaml is a
+# uuid, an absolute path, or a date.
+#
+# The transcript keeps its original basename because that is the session uuid,
+# and restoring it is then a plain copy back with no renaming.
+set -euo pipefail
+
+CC_ARCHIVE=${CC_ARCHIVE:-$HOME/conversations}
+
+die() { printf 'ccstash: %s\n' "$*" >&2; exit 1; }
+
+# A conversation being archived while it is still running can be copied
+# mid-append, leaving a truncated final JSON line. Keep only newline-terminated
+# lines; the lost tail is one turn, which re-saving picks up.
+trim_partial() {
+	local f=$1 n
+	[ -s "$f" ] || return 0
+	[ "$(tail -c1 "$f" | wc -l)" -eq 1 ] && return 0
+	n=$(grep -c '' "$f")
+	head -n $((n - 1)) "$f" >"$f.trim" && mv -f "$f.trim" "$f"
+	printf 'ccstash: dropped an incomplete final line (session still running)\n' >&2
+}
+
+# A snapshot reopened from the picker runs under a fresh session id, which
+# ccresume records in the entry's derived.log as `<stamp> <uuid> <project_dir>`.
+# That id belongs to the entry just as much as the one in meta.yaml does.
+derived_from() {
+	awk -v u="$2" '$2 == u { found = 1 } END { exit !found }' "$1/derived.log" 2>/dev/null
+}
+
+why="" cwd="" force=0 name=""
+while [ $# -gt 0 ]; do
+	case $1 in
+	-w) why=${2:-}; shift ;;
+	-c) cwd=${2:-}; shift ;;
+	-f) force=1 ;;
+	-h | --help)
+		sed -n '2,/^set -euo/p' "$0" | sed 's/^# \?//; $d'
+		exit 0
+		;;
+	-*) die "unknown option $1 (try -h)" ;;
+	*) [ -z "$name" ] || die "expected one name, got '$name' and '$1'"; name=$1 ;;
+	esac
+	shift
+done
+
+[ -n "$name" ] || die "no name given (try -h)"
+[[ $name =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] ||
+	die "name must be a bare folder name (letters, digits, . _ -): '$name'"
+[ -z "$why" ] || [ -r "$why" ] || die "-w file not readable: $why"
+
+transcript="" sidecar="" extra=()
+while IFS= read -r p; do
+	[ -n "$p" ] || continue
+	if [ -d "$p" ]; then
+		case $p in
+		*/file-history/*) extra+=("$p") ;;
+		*) [ -z "$sidecar" ] || die "two sidecar dirs on stdin"; sidecar=$p ;;
+		esac
+	elif [ -f "$p" ] && [ "${p%.jsonl}" != "$p" ]; then
+		[ -z "$transcript" ] || die "two transcripts on stdin"
+		transcript=$p
+	else
+		die "not a transcript or a directory: $p"
+	fi
+done
+
+[ -n "$transcript" ] || die "no *.jsonl transcript on stdin (pipe ccpaths into me)"
+
+uuid=$(basename "$transcript" .jsonl)
+project_dir=$(dirname "$transcript")
+
+dest="$CC_ARCHIVE/$name"
+refresh=0
+if [ -e "$dest" ]; then
+	prev=$(sed -n 's/^session: *//p;/^session: /q' "$dest/meta.yaml" 2>/dev/null || true)
+	if [ "$prev" = "$uuid" ]; then
+		# Same conversation, same name: an update, not a clash. Saving again is
+		# how you pick up turns added since, or supply the reason you skipped.
+		refresh=1
+	elif derived_from "$dest" "$uuid"; then
+		# This session was installed by ccresume from $dest's own snapshot, so it
+		# carries that entry's whole history plus whatever was said after it was
+		# reopened. Updating in place is the point of saving it again -- and the
+		# entry moves to the new id, because that is now the longer transcript.
+		refresh=1
+		printf 'ccstash: %s was resumed from this entry -- updating it in place (was %s)\n' \
+			"${uuid:0:8}" "${prev:0:8}" >&2
+	elif [ "$force" != 1 ]; then
+		die "$dest already holds a different session (${prev:-unreadable meta.yaml}) -- pick another name, or -f to replace"
+	fi
+fi
+
+# Saving one conversation twice under two names is legal but rarely intended.
+shopt -s nullglob
+for m in "$CC_ARCHIVE"/*/meta.yaml; do
+	[ "$(dirname "$m")" = "$dest" ] && continue
+	if grep -qx "session: $uuid" "$m"; then
+		printf 'ccstash: note: also kept as %s\n' "$(basename "$(dirname "$m")")" >&2
+	fi
+done
+shopt -u nullglob
+
+# Stage into a sibling temp dir and rename, so an interrupted copy never leaves
+# a half-populated folder under a name that ccfind would happily list.
+mkdir -p "$CC_ARCHIVE"
+stage=$(mktemp -d "$CC_ARCHIVE/.ccstash-$name.XXXXXX")
+trap 'rm -rf "$stage"' EXIT
+
+cp -p "$transcript" "$stage/$uuid.jsonl"
+trim_partial "$stage/$uuid.jsonl"
+[ -z "$sidecar" ] || cp -a "$sidecar" "$stage/$uuid"
+for e in "${extra[@]:-}"; do
+	[ -n "$e" ] && cp -a "$e" "$stage/file-history"
+done
+
+{
+	printf 'name: %s\n' "$name"
+	printf 'session: %s\n' "$uuid"
+	printf 'project_dir: %s\n' "$project_dir"
+	[ -z "$cwd" ] || printf 'cwd: %s\n' "$cwd"
+	printf 'saved: %s\n' "$(date +%Y-%m-%d)"
+	printf 'transcript: %s.jsonl\n' "$uuid"
+	[ -z "$sidecar" ] || printf 'sidecar: %s\n' "$uuid"
+} >"$stage/meta.yaml"
+
+STUB='(no reason recorded)'
+if [ -n "$why" ] && [ "$(cat "$why")" != "$STUB" ]; then
+	cp -p "$why" "$stage/why.md"
+elif [ "$refresh" = 1 ] && [ -r "$dest/why.md" ] && [ "$(cat "$dest/why.md")" != "$STUB" ]; then
+	# Only a same-session refresh inherits the reason. A -f replace by a
+	# different conversation must not silently keep the old one's note.
+	cp -p "$dest/why.md" "$stage/why.md"
+elif [ -n "$why" ]; then
+	cp -p "$why" "$stage/why.md"
+else
+	printf '%s\n' "$STUB" >"$stage/why.md"
+fi
+
+# The opening prompt, for pickers and previews. jq-optional: without jq the file
+# is simply absent and ccfind falls back to why.md. Slash-command expansions,
+# hook context and pasted caveats all arrive as `user` lines too, so anything
+# starting with a tag or "Caveat:" is skipped -- what's wanted is the first thing
+# the human actually typed.
+#
+# Every string is sliced to 400 chars BEFORE any regex touches it. Transcript
+# lines here reach 720 KB (a big paste or tool result), and jq's regex engine on
+# a string that size takes minutes -- which looked exactly like a hung popup.
+# The slice keeps the prefix the tag tests need, so nothing is lost. Not `-s`
+# either: slurping the whole file is unnecessary when only the first hit matters.
+if command -v jq >/dev/null 2>&1; then
+	JQ_TIMEOUT=""
+	command -v timeout >/dev/null 2>&1 && JQ_TIMEOUT="timeout 15"
+	# shellcheck disable=SC2086
+	$JQ_TIMEOUT jq -r 'select(.type == "user" and (.isMeta | not))
+	          | .message.content
+	          | if type == "string" then . else (map(select(.type=="text").text) | join(" ")) end
+	          | select(type == "string")
+	          | .[0:400]
+	          | gsub("\\s+"; " ")
+	          | select(test("^ *<") | not)
+	          | select(test("^ *Caveat:") | not)
+	          | select(test("^This session is being continued") | not)
+	          | select(test("[^ ]"))' "$stage/$uuid.jsonl" 2>/dev/null |
+		head -1 >"$stage/first-prompt.txt" || true
+	[ -s "$stage/first-prompt.txt" ] || rm -f "$stage/first-prompt.txt"
+fi
+
+# A refresh replaces the folder wholesale (staging dir, then rename), so anything
+# in the old one that ccstash does not itself write would be destroyed: the
+# derived.log ccresume keeps, and any notes added by hand. Carry those over.
+# A -f replace by a *different* conversation deliberately does not inherit them.
+if [ "$refresh" = 1 ]; then
+	# A refresh under a *new* id (the resumed-snapshot case) would otherwise carry
+	# the old transcript across as just another unrecognised file, leaving two
+	# conversations in one folder.
+	old_transcript=$(sed -n 's/^transcript: *//p;/^transcript: /q' "$dest/meta.yaml" 2>/dev/null || true)
+	old_sidecar=$(sed -n 's/^sidecar: *//p;/^sidecar: /q' "$dest/meta.yaml" 2>/dev/null || true)
+	for f in "$dest"/* "$dest"/.[!.]*; do
+		[ -e "$f" ] || continue
+		b=$(basename "$f")
+		case $b in
+		meta.yaml | why.md | first-prompt.txt | "$uuid.jsonl" | "$uuid" | file-history)
+			continue
+			;;
+		esac
+		[ "$b" != "${old_transcript:-}" ] || continue
+		[ "$b" != "${old_sidecar:-}" ] || continue
+		[ -e "$stage/$b" ] || cp -a "$f" "$stage/$b"
+	done
+
+	# This session is the entry's own session now, not a copy derived from it.
+	# Leaving its line in derived.log would make the next ccresume mistake it for
+	# an untouched copy and hand back the *live* thread instead of a fresh one.
+	if [ -e "$stage/derived.log" ]; then
+		awk -v u="$uuid" '$2 != u' "$stage/derived.log" >"$stage/derived.log.new" &&
+			mv -f "$stage/derived.log.new" "$stage/derived.log"
+		[ -s "$stage/derived.log" ] || rm -f "$stage/derived.log"
+	fi
+fi
+
+if [ "$force" = 1 ] || [ "$refresh" = 1 ]; then
+	rm -rf "$dest"
+fi
+mv -T "$stage" "$dest" 2>/dev/null || mv "$stage" "$dest"
+trap - EXIT
+
+printf '%s\n' "$dest"

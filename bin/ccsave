@@ -1,0 +1,228 @@
+#!/usr/bin/env bash
+# ccsave -- keep the Claude Code conversation running in a tmux pane.
+#
+# Usage:
+#   ccsave [-f] [-a] [<pane-id>]
+#
+#   -f   replace an existing folder of the same name
+#   -a   also archive ~/.claude/file-history/<uuid>/ (the /rewind store)
+#
+# With no pane id it uses $TMUX_PANE. Bound to prefix + A, which passes
+# #{pane_id} explicitly because run-shell sets no TMUX_PANE.
+#
+# Flow:
+#   pane -> uuid      delegated to tmux-fork-claude.sh --resolve, so the lookup's
+#                     guards (sdk-cli filtering, pid/procStart verification, the
+#                     /proc-free macOS fallback) live in exactly one place
+#   editor            you supply a name and a reason
+#   ccpaths | ccstash the copy
+#
+# The editor runs *before* any copying, so aborting it (:cq, or leaving the name
+# blank) leaves nothing on disk to clean up.
+#
+# It expects to be run inside a tmux popup and to own the terminal -- the
+# binding does `display-popup -E ... ccsave`, not `ccsave` calling display-popup,
+# because display-popup invoked from run-shell returns immediately instead of
+# waiting for the editor to exit.
+set -euo pipefail
+
+HERE=$(dirname "$(readlink -f "$0")")
+RESOLVE=${CCSAVE_RESOLVE:-$HOME/dotfiles/tmux-fork-claude.sh}
+
+# A popup takes its output to the grave, and tmux's status line holds one message
+# for a few seconds. Three separate failures have now been invisible for exactly
+# that reason, so every run also lands in a log.
+LOG=${CCSAVE_LOG:-$HOME/.cache/ccsave.log}
+mkdir -p "$(dirname "$LOG")" 2>/dev/null || true
+logline() { printf '%s [%s] %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$$" "$*" >>"$LOG" 2>/dev/null || true; }
+
+# In a popup, stdout dies with the popup, so anything worth reading also goes to
+# the tmux status line.
+say() {
+	logline "$*"
+	printf 'ccsave: %s\n' "$*"
+	[ -z "${TMUX:-}" ] || tmux display-message "ccsave: $*" 2>/dev/null || true
+}
+
+# A popup closes the instant this exits, and tmux's own "returned 1" notice
+# overwrites our status-line message -- so an error has to be held on screen
+# where it can actually be read.
+hold() {
+	[ -t 0 ] || return 0
+	printf '\n[any key]'
+	read -rsn1 _ 2>/dev/null || true
+}
+die() {
+	logline "FAILED: $*"
+	printf 'ccsave: %s\n' "$*" >&2
+	hold
+	exit 1
+}
+
+# Choosing not to save is not an error: :cq and a blank name exit clean, so the
+# binding does not report a failure for something you did on purpose.
+abort() {
+	say "$*"
+	exit 0
+}
+
+force="" allpaths="" pane=""
+while [ $# -gt 0 ]; do
+	case $1 in
+	-f) force=-f ;;
+	-a) allpaths=-a ;;
+	-h | --help)
+		sed -n '2,/^set -euo/p' "$0" | sed 's/^# \?//; $d'
+		exit 0
+		;;
+	-*) die "unknown option $1 (try -h)" ;;
+	*) pane=$1 ;;
+	esac
+	shift
+done
+
+# A snapshot reopened from the picker runs under a fresh session id, which
+# ccresume records in the entry's derived.log as `<stamp> <uuid> <project_dir>`.
+# That id belongs to the entry just as much as the one in meta.yaml does.
+derived_from() {
+	awk -v u="$2" '$2 == u { found = 1 } END { exit !found }' "$1/derived.log" 2>/dev/null
+}
+
+pane=${pane:-${TMUX_PANE:-}}
+[ -n "$pane" ] || die "no pane id given and \$TMUX_PANE is unset"
+[ -x "$RESOLVE" ] || die "not executable: $RESOLVE"
+
+# pane=%7 session=<uuid> cwd=/home/jke/dotfiles in_subtree=1
+resolved=$("$RESOLVE" "$pane" --resolve 2>&1) ||
+	die "no Claude session in pane $pane"
+uuid=$(printf '%s' "$resolved" | sed -n 's/.*session=\([0-9a-fA-F-]\{36\}\).*/\1/p')
+cwd=$(printf '%s' "$resolved" | sed -n 's/.*cwd=\([^ ]*\).*/\1/p')
+[ -n "$uuid" ] || die "could not parse a session id out of: $resolved"
+
+# Capture whole, then slice -- NOT `ccpaths | head -1`. A session with a sidecar
+# makes ccpaths print a second line, head closes the pipe, ccpaths takes SIGPIPE,
+# and pipefail reports the whole pipeline as failed. That produced a bogus "no
+# transcript" for every conversation that had subagents or offloaded tool output.
+paths=$("$HERE/ccpaths" "$uuid") || die "no transcript for $uuid"
+transcript=${paths%%$'\n'*}
+turns=$(grep -c '"type":"user"' "$transcript" || true)
+
+# Every entry that already holds this session, newest first. One conversation may
+# legitimately be filed more than once -- you keep talking, it turns into a
+# different conversation, and the old name stops describing it -- so this is a
+# list, not a single hit, and the template spells out both choices rather than
+# nudging you into one. Read-only: ccstash stays the only writer here.
+#
+# An entry holds a session either because meta.yaml names it, or because
+# ccresume reopened that entry's snapshot under a fresh id. Without the second
+# test, re-saving a conversation you resumed from the picker offers a blank
+# template, as if it had never been kept.
+STUB='(no reason recorded)'
+prev_dirs=()
+shopt -s nullglob
+for m in "${CC_ARCHIVE:-$HOME/conversations}"/*/meta.yaml; do
+	d=$(dirname "$m")
+	if grep -qx "session: $uuid" "$m" || derived_from "$d" "$uuid"; then
+		prev_dirs+=("$d")
+	fi
+done
+shopt -u nullglob
+
+prev_dir=""
+if [ ${#prev_dirs[@]} -gt 0 ]; then
+	# Newest first, so the prefilled name is the one you filed most recently
+	# rather than whichever sorts first alphabetically.
+	mapfile -t prev_dirs < <(ls -td -- "${prev_dirs[@]}")
+	prev_dir=${prev_dirs[0]}
+fi
+
+tmpl=$(mktemp -t ccsave.XXXXXX.md)
+trap 'rm -f "$tmpl" "$tmpl.why" "$tmpl.err"' EXIT
+
+{
+	# Line 1 is the folder name.
+	if [ -n "$prev_dir" ]; then
+		basename "$prev_dir"
+	else
+		printf '\n'
+	fi
+
+	printf '# ---------------------------------------------------------------------\n'
+	if [ -n "$prev_dir" ]; then
+		printf '# ccsave  --  this conversation is ALREADY kept as:\n'
+		for d in "${prev_dirs[@]}"; do
+			printf '#       %s   (saved %s)\n' "$(basename "$d")" \
+				"$(sed -n 's/^saved: *//p;/^saved: /q' "$d/meta.yaml")"
+		done
+		cat <<'CHOICE'
+#
+#   LEAVE line 1 as it is  ->  UPDATE that entry: re-copies the transcript so it
+#                              picks up everything said since you last saved.
+#   CHANGE line 1          ->  file this conversation AGAIN under a second name,
+#                              keeping the old entry as it is. Both names resume
+#                              the same conversation.
+#
+CHOICE
+	else
+		printf '# ccsave\n#\n'
+	fi
+
+	cat <<TEMPLATE
+#   LINE 1, above  ->  the folder name. Spaces become dashes.
+#   BELOW THIS BLOCK  ->  why this conversation is worth keeping. This is
+#   what you grep later and what the picker shows.
+#
+#   session : $uuid
+#   cwd     : ${cwd:-?}
+#   turns   : ${turns:-?} user messages, $(wc -c <"$transcript") bytes
+#
+#   :cq, or an empty line 1, aborts. Lines starting with # are dropped.
+# ---------------------------------------------------------------------
+
+TEMPLATE
+
+	if [ -n "$prev_dir" ] && [ -r "$prev_dir/why.md" ] &&
+		[ "$(cat "$prev_dir/why.md")" != "$STUB" ]; then
+		cat "$prev_dir/why.md"
+	fi
+} >"$tmpl"
+
+"${EDITOR:-nvim}" "$tmpl" || abort "editor exited nonzero -- nothing saved"
+
+name=$(grep -v '^[[:space:]]*#' "$tmpl" | grep -m1 '[^[:space:]]' || true)
+name=$(printf '%s' "$name" | tr -s '[:space:]' '-' | tr -cd 'A-Za-z0-9._-' | sed 's/^-*//; s/-*$//')
+[ -n "$name" ] || abort "no name on line 1 -- nothing saved"
+
+# Everything after the name line, comments stripped, leading blanks trimmed.
+grep -v '^[[:space:]]*#' "$tmpl" | sed "0,/[^[:space:]]/d" |
+	sed '/./,$!d' >"$tmpl.why"
+[ -s "$tmpl.why" ] || printf '%s\n' "$STUB" >"$tmpl.why"
+
+logline "saving $uuid from pane $pane as '$name'"
+err="$tmpl.err"
+if ! dest=$("$HERE/ccpaths" ${allpaths:+$allpaths} "$uuid" |
+	"$HERE/ccstash" ${force:+$force} -w "$tmpl.why" -c "${cwd:-$PWD}" "$name" 2>"$err"); then
+	[ ! -s "$err" ] || { cat "$err" >&2; logline "ccstash: $(tr '\n' ' ' <"$err")"; }
+	die "ccstash failed -- see above"
+fi
+[ ! -s "$err" ] || logline "ccstash: $(tr '\n' ' ' <"$err")"
+
+# Distinguish the two outcomes in the status line: after the popup closes it is
+# the only thing left, and "kept as X" for what was actually an in-place update
+# is what made a second entry look impossible.
+verb="kept as"
+also=""
+for d in ${prev_dirs[@]+"${prev_dirs[@]}"}; do
+	if [ "$(basename "$d")" = "$name" ]; then
+		verb="updated"
+	else
+		also="$also, $(basename "$d")"
+	fi
+done
+# An update needs no cross-reference; a *new* entry does -- that is the case
+# where you want to know the older name still exists.
+[ "$verb" = "kept as" ] || also=""
+[ -z "$also" ] || also=" (also kept as${also#,})"
+[ "$(cat "$dest/why.md" 2>/dev/null)" != "$STUB" ] || name="$name (no reason recorded)"
+
+say "$verb $name$also  ->  $dest"

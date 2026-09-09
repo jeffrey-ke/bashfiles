@@ -1,0 +1,131 @@
+#!/usr/bin/env bash
+# ccresume -- reopen a conversation kept by ccstash, inside Claude.
+#
+# Usage:
+#   ccresume [-l] [-r] [-i] <name>
+#
+#   (default)  resume the SNAPSHOT: the archived transcript is installed under a
+#              fresh session id and Claude resumes that, so you continue from the
+#              frozen point and the conversation it came from is left alone.
+#   -l         resume the LIVE conversation the snapshot came from, at whatever
+#              it has grown to since.
+#   -r         install only -- print the transcript path, run nothing.
+#   -i         run claude here instead of in a new tmux window.
+#
+# Why the fresh id: Claude opens a conversation by session id and looks for its
+# transcript at exactly one path, ~/.claude/projects/<slug>/<uuid>.jsonl. While
+# the original conversation is still there, that path holds the *live* copy, so
+# `claude --resume <uuid>` can only ever show the current thread -- which is why
+# reopening a snapshot used to hand you post-snapshot turns. Copying the frozen
+# bytes to a new uuid (and rewriting the `sessionId` fields to match, the only
+# field that carries it) gives the snapshot an identity of its own. Nothing about
+# the live conversation is touched.
+#
+# If Claude has already pruned the original, no new id is needed: the snapshot
+# reclaims its own uuid, and resuming is a plain copy back.
+set -euo pipefail
+
+CC_ARCHIVE=${CC_ARCHIVE:-$HOME/conversations}
+
+die() { printf 'ccresume: %s\n' "$*" >&2; exit 1; }
+note() { printf 'ccresume: %s\n' "$*" >&2; }
+
+# sed quits at the first match instead of piping into head: a `| head -1` here
+# would SIGPIPE sed on a file with two matching keys, and pipefail would turn
+# that into a spurious failure.
+meta_get() { sed -n "s/^$2: *//p;/^$2: /q" "$1"; }
+
+live=0 restore_only=0 inplace=0 name=""
+while [ $# -gt 0 ]; do
+	case $1 in
+	-l) live=1 ;;
+	-r) restore_only=1 ;;
+	-i) inplace=1 ;;
+	-h | --help)
+		sed -n '2,/^set -euo/p' "$0" | sed 's/^# \?//; $d'
+		exit 0
+		;;
+	-*) die "unknown option $1 (try -h)" ;;
+	*) [ -z "$name" ] || die "expected one name, got '$name' and '$1'"; name=$1 ;;
+	esac
+	shift
+done
+
+[ -n "$name" ] || die "no name given (try -h)"
+dir="$CC_ARCHIVE/$name"
+meta="$dir/meta.yaml"
+[ -r "$meta" ] || die "no such kept conversation: $dir"
+
+uuid=$(meta_get "$meta" session)
+project_dir=$(meta_get "$meta" project_dir)
+sidecar=$(meta_get "$meta" sidecar)
+cwd=$(meta_get "$meta" cwd)
+[ -n "$uuid" ] || die "$meta has no 'session:' field"
+[ -n "$project_dir" ] || die "$meta has no 'project_dir:' field"
+snap="$dir/$uuid.jsonl"
+[ -r "$snap" ] || die "archived transcript missing: $snap"
+
+orig="$project_dir/$uuid.jsonl"
+
+if [ "$live" = 1 ]; then
+	[ -e "$orig" ] || die "the live conversation is gone (pruned); drop -l to resume the snapshot"
+	target=$uuid
+	note "resuming the live conversation, not the snapshot"
+elif [ ! -e "$orig" ]; then
+	# Original pruned: the snapshot can have its own id back.
+	mkdir -p "$project_dir"
+	cp -p "$snap" "$orig"
+	[ -z "$sidecar" ] || [ -e "$project_dir/$sidecar" ] || cp -a "$dir/$sidecar" "$project_dir/$sidecar"
+	target=$uuid
+	note "restored the snapshot as $orig"
+else
+	# Reuse the most recent derived copy if it exists and has not been continued,
+	# so pressing enter twice does not litter a copy per keypress.
+	target=""
+	if [ -r "$dir/derived.log" ]; then
+		while read -r _d prev _rest; do
+			[ -n "${prev:-}" ] || continue
+			p="$project_dir/$prev.jsonl"
+			if [ -e "$p" ] &&
+				[ "$(wc -c <"$p")" = "$(wc -c <"$snap")" ]; then
+				target=$prev
+			fi
+		done <"$dir/derived.log"
+	fi
+
+	if [ -n "$target" ]; then
+		note "reusing the untouched snapshot session ${target:0:8}"
+	else
+		target=$(uuidgen | tr 'A-Z' 'a-z')
+		mkdir -p "$project_dir"
+		# Only `sessionId` carries the session id; `session_id` is a different
+		# value and is deliberately left alone.
+		sed "s/\"sessionId\":\"$uuid\"/\"sessionId\":\"$target\"/g" \
+			"$snap" >"$project_dir/$target.jsonl"
+		[ -z "$sidecar" ] || cp -a "$dir/$sidecar" "$project_dir/$target" 2>/dev/null || true
+		# ISO timestamp with no space in it: derived.log is read back with
+		# `read -r stamp uuid rest`, and a "date time" pair would shift the
+		# uuid into the wrong field -- which silently defeated the reuse check.
+		printf '%s %s %s\n' "$(date +%Y-%m-%dT%H:%M:%S)" "$target" "$project_dir" \
+			>>"$dir/derived.log"
+		note "snapshot installed as its own session ${target:0:8} (live thread untouched)"
+	fi
+fi
+
+dst="$project_dir/$target.jsonl"
+
+if [ "$restore_only" = 1 ]; then
+	printf '%s\n' "$dst"
+	exit 0
+fi
+
+command -v claude >/dev/null 2>&1 || die "claude not on PATH"
+run_cwd=${cwd:-$PWD}
+[ -d "$run_cwd" ] || run_cwd=$PWD
+
+if [ "$inplace" = 0 ] && [ -n "${TMUX:-}" ]; then
+	tmux new-window -c "$run_cwd" -n "$name" "claude --resume $target"
+else
+	cd "$run_cwd"
+	exec claude --resume "$target"
+fi

@@ -1,0 +1,218 @@
+#!/usr/bin/env python3
+"""ccview -- render a kept conversation's frozen transcript as readable text.
+
+Usage:
+    ccview <name>            render $CC_ARCHIVE/<name>/ into $PAGER
+    ccview -p <name>         write to stdout instead of paging
+    ccview -w N <name>       wrap width (default 92)
+
+This exists because a snapshot cannot be *resumed*. Claude Code opens a
+conversation by session id and finds its transcript at one fixed path under
+~/.claude/projects/<slug>/<uuid>.jsonl -- there is no "open this file" flag. That
+path holds the live conversation, which has kept growing since the save, so
+`claude --resume <uuid>` always shows the current thread, never the archived
+copy. Reading the frozen bytes therefore happens outside Claude, here.
+
+Stdlib only, no uv launcher: this runs on a keypress inside a tmux popup.
+"""
+
+import json
+import os
+import re
+import shutil
+import subprocess
+import sys
+import textwrap
+
+STUB = "(no reason recorded)"
+SKIP_TYPES = {"file-history-snapshot", "mode", "ai-title", "atis-latch",
+              "last-prompt", "summary"}
+# Injected context, not anything the human typed or Claude said.
+NOISE = re.compile(r"^\s*(<system-reminder>|<command-name>|<local-command|"
+                   r"<user-prompt-submit-hook>|Caveat: The messages below)")
+REMINDER = re.compile(r"<system-reminder>.*?</system-reminder>", re.S)
+
+
+def die(msg):
+    print(f"ccview: {msg}", file=sys.stderr)
+    sys.exit(1)
+
+
+def meta_get(path, key):
+    try:
+        with open(path) as fh:
+            for line in fh:
+                if line.startswith(key + ":"):
+                    return line.split(":", 1)[1].strip()
+    except OSError:
+        pass
+    return ""
+
+
+def text_of(content):
+    """A message's content is either a string or a list of typed blocks."""
+    if isinstance(content, str):
+        return content, []
+    if not isinstance(content, list):
+        return "", []
+    parts, tools = [], []
+    for block in content:
+        if not isinstance(block, dict):
+            continue
+        kind = block.get("type")
+        if kind == "text":
+            parts.append(block.get("text", ""))
+        elif kind == "thinking":
+            continue                      # not part of what was said
+        elif kind == "tool_use":
+            name = block.get("name", "tool")
+            arg = block.get("input", {})
+            hint = ""
+            if isinstance(arg, dict):
+                for k in ("command", "file_path", "pattern", "path", "prompt",
+                          "description", "query"):
+                    if arg.get(k):
+                        hint = str(arg[k]).split("\n")[0][:110]
+                        break
+            tools.append(f"{name}({hint})" if hint else name)
+        elif kind == "tool_result":
+            tools.append("<- result")
+    return "\n".join(p for p in parts if p), tools
+
+
+def render(entry, width):
+    name = os.path.basename(entry)
+    meta = os.path.join(entry, "meta.yaml")
+    uuid = meta_get(meta, "session")
+    if not uuid:
+        die(f"{meta} has no 'session:' field")
+    transcript = os.path.join(entry, f"{uuid}.jsonl")
+    if not os.path.exists(transcript):
+        die(f"archived transcript missing: {transcript}")
+
+    out = []
+    rule = "=" * width
+    out.append(rule)
+    out.append(f"  {name}")
+    out.append(f"  session {uuid}   saved {meta_get(meta, 'saved')}")
+    out.append(f"  cwd     {meta_get(meta, 'cwd')}")
+    try:
+        with open(os.path.join(entry, "why.md")) as fh:
+            why = fh.read().strip()
+        if why and why != STUB:
+            out.append("")
+            for line in textwrap.wrap(why, width - 4):
+                out.append(f"  {line}")
+    except OSError:
+        pass
+
+    live = os.path.join(meta_get(meta, "project_dir"), f"{uuid}.jsonl")
+    snap_size = os.path.getsize(transcript)
+    out.append("")
+    if os.path.exists(live) and os.path.getsize(live) != snap_size:
+        delta = os.path.getsize(live) - snap_size
+        out.append(f"  SNAPSHOT -- frozen at save time. The live conversation is "
+                   f"{delta:+,} bytes")
+        out.append(f"  different; ctrl-r in the picker resumes that one instead.")
+    else:
+        out.append("  SNAPSHOT -- frozen at save time.")
+    out.append(rule)
+
+    users = assistants = 0
+    last_who = None
+    with open(transcript, errors="replace") as fh:
+        for line in fh:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                rec = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            kind = rec.get("type")
+            if kind in SKIP_TYPES or kind == "attachment":
+                continue
+            msg = rec.get("message")
+            if not isinstance(msg, dict):
+                continue
+            body, tools = text_of(msg.get("content"))
+            body = REMINDER.sub("", body).strip()
+            if kind == "user":
+                if not body or NOISE.match(body):
+                    continue
+                users += 1
+                who = "you"
+            elif kind == "assistant":
+                if not body and not tools:
+                    continue
+                assistants += 1
+                who = "claude"
+            else:
+                continue
+
+            # One header per speaker turn, not per record: a single assistant
+            # turn is written as many lines (text, then one per tool call).
+            if who != last_who:
+                stamp = (rec.get("timestamp") or "")[:16].replace("T", " ")
+                out.append("")
+                out.append(f"--- {who} " + "-" * max(0, width - len(who) - 24) +
+                           f" {stamp}")
+                last_who = who
+            for para in body.split("\n"):
+                if not para.strip():
+                    out.append("")
+                    continue
+                out.extend(textwrap.wrap(para, width, replace_whitespace=False,
+                                         drop_whitespace=False) or [""])
+            for t in tools:
+                if t != "<- result":
+                    out.append(f"    * {t}")
+
+    out.append("")
+    out.append(rule)
+    out.append(f"  {users} messages from you, {assistants} from claude")
+    out.append(rule)
+    return "\n".join(out) + "\n"
+
+
+def main():
+    args = sys.argv[1:]
+    to_stdout, width, name = False, 92, None
+    while args:
+        a = args.pop(0)
+        if a == "-p":
+            to_stdout = True
+        elif a == "-w":
+            width = int(args.pop(0))
+        elif a in ("-h", "--help"):
+            print(__doc__.strip())
+            return
+        elif a.startswith("-"):
+            die(f"unknown option {a} (try -h)")
+        else:
+            name = a
+    if not name:
+        die("no name given (try -h)")
+
+    root = os.environ.get("CC_ARCHIVE") or os.path.expanduser("~/conversations")
+    entry = os.path.join(root, name)
+    if not os.path.isdir(entry):
+        die(f"no such kept conversation: {entry}")
+
+    if not to_stdout:
+        width = min(width, max(60, shutil.get_terminal_size((100, 40)).columns - 2))
+    body = render(entry, width)
+
+    if to_stdout or not sys.stdout.isatty():
+        sys.stdout.write(body)
+        return
+    pager = os.environ.get("PAGER") or "less"
+    argv = [pager, "-R", "-S"] if os.path.basename(pager) == "less" else [pager]
+    try:
+        subprocess.run(argv, input=body, text=True, check=False)
+    except FileNotFoundError:
+        sys.stdout.write(body)
+
+
+if __name__ == "__main__":
+    main()

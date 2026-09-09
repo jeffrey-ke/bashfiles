@@ -1,0 +1,139 @@
+#!/usr/bin/env bash
+# ccfind -- fzf over the conversations you kept; Enter reopens one.
+#
+# Usage:
+#   ccfind [-p] [query]
+#
+#   -p   print the chosen name instead of opening it
+#
+#   enter   resume the SNAPSHOT -- the frozen transcript is given its own session
+#           id and Claude resumes that, so you continue from the point you saved
+#           and the conversation it came from is left alone
+#   ctrl-r  resume the LIVE conversation instead, at whatever it has grown to
+#   ctrl-v  read the snapshot without resuming anything (ccview)
+#   ctrl-o  edit the entry's folder in $EDITOR
+#
+# ccfind --list prints the same records to stdout, for piping into rg or grep
+# when there is no terminal (a cron job, a hook, a subagent).
+#
+# There is no index file. The listing is computed from $CC_ARCHIVE/*/meta.yaml
+# on every invocation, so nothing can go stale and there is nothing to rebuild
+# after you rename, edit, or delete a folder by hand.
+#
+# Each line is `name  date  why | opening prompt`, so typing matches your own
+# words and the way the conversation started, not just the folder name. The tail
+# of the line runs off the right edge on purpose: fzf matches the whole string
+# whether or not it is visible, and the preview pane shows the entry in full.
+# (Not --with-nth: that changes what fzf *matches*, not merely what it shows, so
+# a hidden field would be undisplayable and unsearchable both.)
+set -euo pipefail
+
+CC_ARCHIVE=${CC_ARCHIVE:-$HOME/conversations}
+
+die() { printf 'ccfind: %s\n' "$*" >&2; exit 1; }
+
+# Name is padded into a fixed column so the dates line up; ccstash guarantees a
+# name has no whitespace, so awk field 1 recovers it from the chosen line.
+list() {
+	local d meta name saved blob
+	shopt -s nullglob
+	for meta in "$CC_ARCHIVE"/*/meta.yaml; do
+		d=$(dirname "$meta")
+		name=$(basename "$d")
+		saved=$(sed -n 's/^saved: *//p;/^saved: /q' "$meta")
+		# Truncated by slicing, not `| head -c`: head closing the pipe early
+		# would SIGPIPE tr, and pipefail would abort the whole listing.
+		blob=$(cat "$d/why.md" "$d/first-prompt.txt" 2>/dev/null |
+			tr '\n\t' '  ' | tr -s ' ')
+		blob=${blob:0:600}
+		printf '%-30s  %s  %s\n' "$name" "${saved:--}" "$blob"
+	done
+	shopt -u nullglob
+}
+
+preview() {
+	local d="$CC_ARCHIVE/$1"
+	[ -d "$d" ] || { printf '  (gone: %s)\n' "$d"; return 0; }
+	sed 's/^/  /' "$d/meta.yaml"
+
+	# One conversation can be filed under several names (you kept talking and it
+	# became a different conversation). Cross-reference them, so looking at an
+	# older entry shows there is a longer one.
+	local uuid others=""
+	uuid=$(sed -n 's/^session: *//p;/^session: /q' "$d/meta.yaml")
+	shopt -s nullglob
+	for m in "$CC_ARCHIVE"/*/meta.yaml; do
+		[ "$(dirname "$m")" = "$d" ] && continue
+		if grep -qx "session: $uuid" "$m"; then
+			others="$others $(basename "$(dirname "$m")")"
+		fi
+	done
+	shopt -u nullglob
+	[ -z "$others" ] || printf '  also kept as:%s\n' "$others"
+
+	printf '\n  --- why ---\n'
+	fold -s -w 76 "$d/why.md" 2>/dev/null | sed 's/^/  /'
+	if [ -r "$d/first-prompt.txt" ]; then
+		printf '\n  --- opened with ---\n'
+		fold -s -w 76 "$d/first-prompt.txt" | sed 's/^/  /'
+		printf '\n'
+	fi
+	printf '\n  --- on disk ---\n'
+	du -sh "$d" | sed 's/^/  /'
+}
+
+# fzf calls back into this script for the preview pane.
+if [ "${1:-}" = "--preview" ]; then
+	preview "${2:-}"
+	exit 0
+fi
+
+# The records fzf would be given, for piping into rg/grep without a terminal.
+if [ "${1:-}" = "--list" ]; then
+	list
+	exit 0
+fi
+
+printonly=0
+if [ "${1:-}" = "-p" ]; then
+	printonly=1
+	shift
+fi
+case ${1:-} in
+-h | --help)
+	sed -n '2,/^set -euo/p' "$0" | sed 's/^# \?//; $d'
+	exit 0
+	;;
+esac
+
+command -v fzf >/dev/null 2>&1 || die "fzf not on PATH"
+[ -d "$CC_ARCHIVE" ] || die "no archive yet at $CC_ARCHIVE (save one with prefix + A)"
+
+records=$(list)
+[ -n "$records" ] || die "no kept conversations under $CC_ARCHIVE"
+
+# --expect rather than a `become` binding: fzf prints the pressed key as its first
+# output line, which works on every fzf carrying --expect.
+here=$(dirname "$(readlink -f "$0")")
+picked=$(printf '%s\n' "$records" | fzf \
+	--query="${1:-}" \
+	--prompt='conversation> ' \
+	--header='enter: resume snapshot   ctrl-r: resume live   ctrl-v: read   ctrl-o: edit' \
+	--expect=ctrl-r,ctrl-v \
+	--preview="$(printf '%q' "$here/ccfind") --preview {1}" \
+	--preview-window='right,55%,wrap' \
+	--bind="ctrl-o:execute(\${EDITOR:-nvim} $CC_ARCHIVE/{1})") || exit 130
+
+key=$(printf '%s\n' "$picked" | sed -n '1p')
+choice=$(printf '%s\n' "$picked" | sed -n '2p' | awk '{print $1}')
+[ -n "$choice" ] || exit 130
+
+if [ "$printonly" = 1 ]; then
+	printf '%s\n' "$choice"
+elif [ "$key" = "ctrl-r" ]; then
+	exec "$here/ccresume" -l "$choice"
+elif [ "$key" = "ctrl-v" ]; then
+	exec "$here/ccview" "$choice"
+else
+	exec "$here/ccresume" "$choice"
+fi
