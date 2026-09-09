@@ -71,3 +71,103 @@ Captured `#{window_id}` (single `#`, so tmux expands it to e.g. `@117`) and `#W`
 3. **`new-session` + `move-window` + `kill-window` is the pattern for "break to session".** There is no single tmux command for this. The `_placeholder` window name lets us reliably kill the empty default window after the move.
 
 4. **Test `move-window` with explicit `-s` always.** Even outside `run-shell` chains, relying on implicit "current window" for `move-window` is fragile.
+---
+
+## 2026-08-18 — Fork This Pane's Claude Conversation (`prefix X`)
+
+### Goal
+
+`prefix X` should fork the Claude Code conversation running in the current pane into a
+sibling pane (`prefix C-x` into a new window) with no round trip through Claude itself —
+the same fork the `fork-conversation-pane` skill performs, done in pure tmux.
+
+### What Was Implemented
+
+```
+bind-key X   run-shell -b '$HOME/dotfiles/tmux-fork-claude.sh "#{pane_id}"'
+bind-key C-x run-shell -b '$HOME/dotfiles/tmux-fork-claude.sh "#{pane_id}" -W'
+```
+
+The script resolves pane → Claude session id by scanning `~/.claude/sessions/<pid>.json`
+(Claude Code >= 2.1.235 records `"tmux":"<session>:@<win>.%<pane>"` there itself), then
+delegates to the skill's `fork-pane.sh`, which runs
+`claude --resume <id> --fork-session`.
+
+### The Trap — `$TMUX_PANE` Cannot Identify the Caller
+
+The obvious script reads `$TMUX_PANE` to learn which pane invoked it. That is wrong under
+`run-shell`, and wrong in the worst way: the variable is usually *present but stale*,
+because a `run-shell` child inherits the tmux **server's** environment, not the calling
+pane's. Measured on a scratch server: the same `run-shell` saw `#{pane_id}` = `%0` (the
+real pane) while `$TMUX_PANE` = `%11` — a pane on an entirely different server, leaked in
+from the shell that happened to start that server. A `$TMUX_PANE` script therefore forks
+the *wrong* conversation silently instead of failing.
+
+**Fix:** expand `#{pane_id}` in the binding, where tmux has valid context, and pass it as
+`$1`. Same rule as the 2026-04-09 `move-window` case: capture identity early, pass
+explicitly.
+
+### Related Trap — `display-popup` Does Not Expand Formats on 3.4
+
+The sibling binding `prefix e` (headless Claude diagnosis of the pane's last output) needs
+`#{pane_id}` inside a `display-popup -E` command. On tmux 3.4 the popup's shell-command is
+*not* format-expanded (3.5 is), so `#{pane_id}` arrives literally. The fix is a `run-shell
+-b` hop, which does expand, wrapping the `display-popup` call:
+
+```
+bind-key e run-shell -b 'tmux display-popup -E -w 80% -h 80% "$HOME/dotfiles/tmux-claude-explain.sh \"#{pane_id}\" \"#{pane_current_path}\""'
+```
+
+### Key Takeaways
+
+1. **Neither `$TMUX_PANE` nor implicit targeting survives `run-shell`.** Formats do. Pass
+   `#{pane_id}` / `#{window_id}` as arguments, always.
+2. **A stale env var is worse than a missing one** — it turns a crash into a wrong target.
+3. **Check whether the command you are nesting expands formats at all** on the installed
+   version. `run-shell` always does; `display-popup` only from 3.5.
+4. The four remaining traps in the pane → Claude-session lookup (`sdk-cli` one-shots, no
+   `TMUX_PANE` under `run-shell`, `read` exiting 1 on a missing trailing newline, no
+   `/proc` on macOS) are written up in
+   `~/dotfiles/.docs_claude/notes/claude-session-tmux-pane-lookup.md`.
+
+---
+
+## 2026-08-21 — Label Only the Active Pane's Border
+
+### Goal
+
+Show a label ("ACTIVE", or the pane's name) in a top corner of the focused pane's border,
+and have it disappear when focus moves away.
+
+### Measuring It Without Touching the Live Session
+
+`capture-pane` returns a pane's *content*, so it can never show a border. The rig that
+worked: run the config under test on socket `inner`, then attach to it from a pane on
+socket `outer`, and `capture-pane` the outer pane — the inner client's borders arrive as
+plain text. Both servers `-f /dev/null`, so the real `.tmux.conf` is not involved. See
+"Testing Config Changes Without Touching Your Session" in `SKILL.md`.
+
+### Findings (tmux 3.4)
+
+1. **`pane-border-format` is evaluated per pane**, so `#{?pane_active,LABEL,}` is all the
+   conditional needed. An empty expansion leaves an ordinary unbroken border line.
+2. **`#[align=right]` works here.** This was the open question — `align` is a
+   `format_draw` feature and much of `#[...]` handling in non-status contexts goes through
+   `screen_write_cnputs`, which ignores it. Measured: with `align=right` the label sat at
+   the active pane's right edge; without it, at the left edge inset 2 cells. Alignment is
+   per *pane*, not per window, so each pane labels its own corner.
+3. **A single-pane window still spends the border row** (verified by killing the second
+   pane — the label stayed and the row was not reclaimed). Hook it back:
+   ```
+   set-hook -g window-layout-changed 'if -F "#{==:#{window_panes},1}" "set -w pane-border-status off" "set -w pane-border-status top"'
+   ```
+   Confirmed: splitting flipped it to `top`, killing back down to one pane flipped it to
+   `off` and returned the row to the pane.
+4. **`top` and `bottom` are exclusive.** There is no way to keep persistent names on the
+   bottom border and an active marker on the top one — one label line per pane, total.
+
+### Key Takeaway
+
+Don't reason about which `#[...]` directives survive in a non-status-line format — the
+answer differs per option and per version. The two-socket rig answers it in about thirty
+seconds.
