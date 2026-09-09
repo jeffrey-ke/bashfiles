@@ -25,6 +25,8 @@ vnoremap ^ $
 onoremap $ ^
 onoremap ^ $
 
+set background=light
+
 
 command! AT ALEToggle
 set mouse=a
