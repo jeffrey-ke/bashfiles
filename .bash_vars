@@ -42,14 +42,19 @@ HISTFILESIZE=200000
 # Entries written before this carry no marker; bash reads a mixed file fine.
 export HISTTIMEFORMAT='%F %T '
 
-# Guarded because `fresh` re-sources .bashrc: without it each re-source prepends
+# Guarded because `fresh` re-sources .bashrc: without it each re-source appends
 # another `history -a`. ${PROMPT_COMMAND[*]} reads correctly whether bash-git-prompt
-# left a string or an array, and the array branch mirrors .bash_prompt's own handling.
+# left a string or an array, and both branches mirror .bash_prompt's own handling.
+#
+# Append, never prepend: in the string branch the whole PROMPT_COMMAND runs as one
+# compound command, so a leading `history -a` succeeds and overwrites $? before
+# bash-git-prompt's setLastCommandState reads it, leaving the prompt's exit
+# indicator stuck at ✔ even for commands that failed.
 if [[ "${PROMPT_COMMAND[*]}" != *"history -a"* ]]; then
 	if declare -p PROMPT_COMMAND &>/dev/null && [[ $(declare -p PROMPT_COMMAND) == "declare -a"* ]]; then
-		PROMPT_COMMAND=('history -a' "${PROMPT_COMMAND[@]}")
+		PROMPT_COMMAND+=('history -a')
 	else
-		PROMPT_COMMAND="history -a;${PROMPT_COMMAND:+ $PROMPT_COMMAND}"
+		PROMPT_COMMAND="${PROMPT_COMMAND:+$PROMPT_COMMAND; }history -a"
 	fi
 fi
 
