@@ -12,6 +12,12 @@ pushes to open browsers, so a file write is the whole mechanism — no API call.
 For docs lookup, tags advice, and log prose conventions, use the `silverbullet`
 skill instead; this one is only about writing.
 
+**Before writing, read `/home/jke/worklog/CLAUDE.md`** — the vault's contract for
+what an entry may contain (transcribe what the user said, concisely; numbers
+verbatim; every entry findable by both tag and wikilink). It auto-loads only for
+sessions whose cwd is `~/worklog`, so read it explicitly from anywhere else. This
+skill governs *how* to write safely; that file governs *what* goes in.
+
 ## Rules
 
 - **Append, never overwrite.** `cp page.md /tmp/page.bak` first, then
