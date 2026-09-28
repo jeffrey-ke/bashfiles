@@ -175,6 +175,28 @@ install_ug() {
 	(cd "$WORKDIR/ugrep" && ./build.sh --prefix="$HOME/.local" && make install)
 }
 
+# Opt-in only (`./install-tools.sh mmdc`). mermaid-cli renders the ```mermaid fences
+# in markdown that nvim's diagram.nvim displays inline. Left out of the default set
+# because it is ~475 MB of node_modules and needs both node and a Chrome: without it
+# a mermaid fence is simply an unrendered code block, which is the pre-existing state.
+#
+# Installed into its own prefix with a shim on PATH rather than `npm -g`, because a
+# global install lands inside the *version-scoped* fnm node dir and vanishes on the
+# next node upgrade. The shim also carries the puppeteer wiring, which is where the
+# size saving comes from: PUPPETEER_SKIP_DOWNLOAD plus an explicit executable path
+# reuse the system Chrome instead of fetching a second ~150 MB Chromium.
+install_mmdc() {
+	command -v npm >/dev/null 2>&1 || return 1
+	local lib="$HOME/.local/lib/mermaid-cli"
+	mkdir -p "$lib" || return 1
+	# Only the package: the `mmdc` shim itself is bin/mmdc, which run.sh has already
+	# symlinked into ~/.local/bin along with every other extensionless tool in bin/.
+	# That shim exits non-zero until this package exists, so the caller's
+	# already-installed probe correctly reads "missing" and lands here.
+	PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true PUPPETEER_SKIP_DOWNLOAD=true \
+		npm install --prefix "$lib" @mermaid-js/mermaid-cli || return 1
+}
+
 install_uv() {
 	curl -LsSf https://astral.sh/uv/install.sh | sh
 }
@@ -254,6 +276,9 @@ if [ "${BASH_SOURCE[0]}" = "$0" ]; then
 
 	command -v ug >/dev/null 2>&1 ||
 		echo "· ug not installed (opt-in: ./install-tools.sh ug builds it from source, or apt install ugrep)"
+
+	command -v mmdc >/dev/null 2>&1 ||
+		echo "· mmdc not installed (opt-in: ./install-tools.sh mmdc — inline mermaid diagrams in nvim)"
 
 	# The generic per-tool failure line says "re-run later", which is wrong for tmux on
 	# Linux — re-running can't help without a package manager.

@@ -1,0 +1,56 @@
+#!/usr/bin/env bash
+# mermaid-cli, driven by the system Chrome so no Chromium is ever downloaded and
+# nothing but this shim lands on PATH. run.sh symlinks this file into ~/.local/bin;
+# the package it drives is installed by `install-tools.sh mmdc` into
+# ~/.local/lib/mermaid-cli, deliberately outside the version-scoped fnm node dir.
+#
+# Exists because diagram.nvim shells out to a bare `mmdc` and cannot set env vars
+# (renderers/mermaid.lua builds a command string), so PUPPETEER_EXECUTABLE_PATH and
+# the --no-sandbox config have to be applied here rather than at the call site.
+set -euo pipefail
+
+CLI="${MERMAID_CLI_HOME:-$HOME/.local/lib/mermaid-cli}/node_modules/@mermaid-js/mermaid-cli/src/cli.js"
+[[ -f "$CLI" ]] || {
+	echo "mmdc: mermaid-cli not found at $CLI" >&2
+	echo "  install it with: ~/dotfiles/install-tools.sh mmdc" >&2
+	exit 1
+}
+
+# Resolve node without depending on fnm having been eval'd into this shell: an
+# editor or a cron job inherits neither the fnm multishell PATH nor its env.
+NODE="$(command -v node || true)"
+if [[ -z "$NODE" ]]; then
+	# Newest fnm-managed node, by version sort.
+	NODE="$(ls -d "${FNM_DIR:-$HOME/.local/share/fnm}"/node-versions/*/installation/bin/node 2>/dev/null | sort -V | tail -1)"
+fi
+[[ -n "$NODE" && -x "$NODE" ]] || { echo "mmdc: no node interpreter found" >&2; exit 1; }
+
+CHROME=""
+for c in "${PUPPETEER_EXECUTABLE_PATH:-}" /usr/bin/google-chrome /usr/bin/chromium \
+	/usr/bin/chromium-browser /snap/bin/chromium; do
+	[[ -n "$c" && -x "$c" ]] && { CHROME="$c"; break; }
+done
+[[ -n "$CHROME" ]] || {
+	echo "mmdc: no Chrome/Chromium found; set PUPPETEER_EXECUTABLE_PATH" >&2
+	exit 1
+}
+
+# Only supply a puppeteer config when the caller has not, so an explicit -p still wins.
+ARGS=()
+have_p=0
+for a in "$@"; do
+	[[ "$a" == "-p" || "$a" == "--puppeteerConfigFile" ]] && have_p=1
+done
+if [[ $have_p -eq 0 ]]; then
+	# A fixed path, not mktemp: the exec below replaces this shell, so an EXIT trap
+	# would never run and every render would leak a file into /tmp.
+	CFG="${XDG_CACHE_HOME:-$HOME/.cache}/mermaid-puppeteer.json"
+	mkdir -p "$(dirname "$CFG")"
+	echo '{ "args": ["--no-sandbox", "--disable-setuid-sandbox"] }' >"$CFG"
+	ARGS+=(-p "$CFG")
+fi
+
+PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true \
+PUPPETEER_SKIP_DOWNLOAD=true \
+PUPPETEER_EXECUTABLE_PATH="$CHROME" \
+	exec "$NODE" "$CLI" "${ARGS[@]}" "$@"
