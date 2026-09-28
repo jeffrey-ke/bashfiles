@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Symlink claude-skills/ into ~/.claude/skills/ and claude-output-styles/
-# into ~/.claude/output-styles/ for autodiscovery.
+# Symlink claude-skills/ into both Claude's and Codex's skill directories,
+# and claude-output-styles/ into ~/.claude/output-styles/ for autodiscovery.
 # Skips anything that already exists at the destination.
 
 set -euo pipefail
@@ -39,4 +39,5 @@ link_files_into() { # <src-dir-of-files> <dest-dir>
 }
 
 link_dirs_into "$ROOT/claude-skills" "$HOME/.claude/skills"
+link_dirs_into "$ROOT/claude-skills" "$HOME/.codex/skills"
 link_files_into "$ROOT/claude-output-styles" "$HOME/.claude/output-styles"
