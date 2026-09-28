@@ -4,11 +4,12 @@ set -e
 DOTFILES="$HOME/dotfiles"
 BASHRC="$HOME/.bashrc"
 
-# nvim/ and commentstrip/ are submodules; without this the ~/.config/nvim symlink
-# points at an empty directory and nvim starts with no config at all. Non-fatal:
-# the URLs are SSH, so a machine without a GitHub key gets a warning, not an abort.
+# nvim/, commentstrip/, myvimtex/ and fzf-git.sh/ are submodules; without this the
+# ~/.config/nvim symlink points at an empty directory and nvim starts with no config
+# at all. Non-fatal: the jeffrey-ke URLs are SSH, so a machine without a GitHub key
+# gets a warning, not an abort (fzf-git.sh is https and may still have succeeded).
 git -C "$DOTFILES" submodule update --init --recursive ||
-	echo "warning: submodule init failed (missing SSH key or offline?) — nvim config and commentstrip are unavailable until you re-run it"
+	echo "warning: submodule init failed (missing SSH key or offline?) — nvim config, commentstrip, myvimtex and fzf-git.sh may be unavailable until you re-run it"
 
 # Same name in the repo and in $HOME (modulo the leading dot already present).
 files=(.bash_aliases .functions.sh .bash_prompt .bash_tools .bash_vars .snippet_aliases .pylintrc .tmux.conf .vimrc .gitconfig .visidatarc)
