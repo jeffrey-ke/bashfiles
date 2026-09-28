@@ -1,6 +1,6 @@
 ---
 name: silverbullet
-description: Look up SilverBullet features in the official docs or community forum, and write/extend research log entries in the local worklog space. Use when the user asks how to do something in SilverBullet (frontmatter, tags, queries, Space Lua, templates, tasks, journal, config), says "write a log" / "add this to a log", asks "what tags would you recommend?", or hits a SilverBullet error.
+description: Looks up SilverBullet features in the official docs or forum, and recommends tags for the ~/worklog vault. Also /sb.
 argument-hint: a question, a topic to log, or "tags" to get tag suggestions
 allowed-tools: Read, Write, Edit, Bash(curl:*), Bash(jq:*), Bash(sb-up:*), Bash(ls:*), Bash(rg:*), Bash(grep:*), Bash(strings:*), Bash(silverbullet:*)
 ---
@@ -57,6 +57,11 @@ strings -n 4 ~/.local/bin/silverbullet | grep -c 'Ctrl-q'    # 8 -> the grep its
 
 # Enumerate commands present in this build
 strings -n 6 ~/.local/bin/silverbullet | grep -oE '"(Navigate|Page|Journal|Task):[^"]{0,40}"' | sort -u
+
+# Is a *feature* compiled in? The bundle embeds a sourcemap listing every source file by path,
+# so a doc page's `references:` frontmatter becomes a directly checkable claim.
+strings -n 4 ~/.local/bin/silverbullet | grep -o '[a-z_/.]*html_element\.ts' | sort -u
+#   ../../../client/codemirror/html_element.ts  -> inline-HTML rendering is in this build
 ```
 
 `grep -abo <string> ~/.local/bin/silverbullet` gives byte offsets; `dd bs=1 skip=<off-400> count=900`
@@ -86,6 +91,7 @@ Rules:
 | Orientation, first steps | `Getting Started`, `Manual`, `Best Practices`, `Knowledge Base` |
 | Page-level attributes, tags | `Frontmatter`, `Attribute`, `Meta Page` |
 | Syntax, callouts, embeds | `Markdown/Basics`, `Markdown/Extensions`, `Markdown/Admonition`, `Document` |
+| Raw HTML, colored text | `Markdown/HTML`, `Space Style` |
 | Tasks, checkboxes | `Task`, `Guide/Task Management` |
 | Daily notes | `Journal` |
 | Scripting, queries | `Space Lua`, `Space Lua/Standard Library`, `Space Lua/Integrated Query`, `Object` |
@@ -128,7 +134,54 @@ Gotcha: several single keys (e.g. bare `<Space>`, which page-scrolls) are bound 
 one as a multi-key leader prefix requires `unmap`-ping the bare key first, or the prefix sequence
 never fires.
 
+## Colored text
+
+CommonMark has no color syntax. SilverBullet offers three routes — all verified against local 2.10.0.
+
+**Inline HTML** (most direct):
+
+```markdown
+This is <span style="color: crimson">red</span> text.
+```
+
+The `Markdown/HTML` doc page covers inline *and* block-level raw HTML and states plainly *"No
+sanitization is applied — HTML is rendered as-is"*, so `style=` survives. [[Live Preview]] renders it
+with the cursor outside the tag and falls back to source with the cursor inside. Traps that page
+calls out: an unmatched tag renders as literal text, and a block-level HTML block terminates at the
+first blank line — keep `<details>`-style wrappers contiguous.
+
+**`==highlight==` + [[Space Style]]** — the highlight extension is built in (`Markdown/Basics`); the
+rendered element carries class `sb-highlight` and reads a `--highlight-color` variable (both in the
+2.10.0 binary), so one `space-style` block recolors every highlight space-wide.
+
+**Space Lua widget** — the community answer, forum topic 3058 "Colors for individual words or
+phrases". Semantic call sites, palette defined once:
+
+```lua
+local function ColorText(text, color)
+  return widget.html(dom.span { style = ("color:%s; font-weight:bold;"):format(color), text })
+end
+function Red(text) return ColorText(text, "#E57373") end
+```
+
+Then `${Red("careful")}` anywhere. A later post in that thread binds it to wrap the selection,
+Ctrl-B style.
+
+Choose by lifetime: inline HTML for one-offs, the Lua widget for a recurring vocabulary (e.g. source
+quote vs. own commentary) where the markup should say *what*, not *what color*. Portability differs —
+`<span style>` survives most other renderers but gets no color from render-markdown.nvim, while
+`${Red(...)}` is literal text outside SilverBullet. In `~/worklog`, `Calendar.md` already holds a
+`space-style` block if CSS should sit next to existing custom styling rather than in `CONFIG`.
+
+**Stale-info trap:** topic 3058 contains "we, as we know, cannot have raw HTML in Markdown" — true
+when written, wrong now. Discount any forum post predating `client/markdown_parser/html_block.ts`;
+check the binary instead.
+
 ## Writing a log
+
+Writing is governed by `/home/jke/worklog/CLAUDE.md` — **read it first** if you are writing
+rather than looking something up. Prefer the `recording-research-results` skill for dictated
+results, and `updating-worklog-vault` for write mechanics.
 
 Journal convention is `Journal/YYYY-MM-DD` (built in, not a plug; `Journal: Today` = `Ctrl-q j`).
 Use it for dated entries; use a topic page for anything that outlives the day.
@@ -162,17 +215,72 @@ Rules:
 
 ## Recommending tags
 
-`tags:` in frontmatter prefers **space-separated bare words on one line** (`tags: worklog nvim`).
-Inline `#hashtags` in the body work too and are queryable the same way. Reserved: `name`
-(don't set), `displayName`, `aliases`.
+Frontmatter `tags:` and inline `#hashtags` are **not interchangeable — they differ in scope.**
+Frontmatter tags the whole page; a hashtag tags the specific object it sits in. Both are query
+sources in [[Space Lua/Integrated Query]] (`Tag.md`), so use both, at the granularity you want
+to retrieve at.
 
-When asked "what tags would you recommend?":
+Scope rules, verbatim from `Markdown/Hashtags.md`:
 
-1. Read existing tags before inventing any — reuse beats coining:
-   `rg -N '^tags:' ~/worklog --no-heading | tr ' ' '\n' | sort | uniq -c | sort -rn`
-2. Suggest 2–4: one **kind** (`worklog`, `note`, `debug`, `decision`), one or two **subjects**
-   (`nvim`, `tmux`, `silverbullet`), optionally one **project**.
-3. Singular, lowercase, no punctuation. Reuse an existing near-match rather than adding a synonym.
+| Where the hashtag sits | What it tags |
+|---|---|
+| alone in a paragraph (only hashtags) | the **page** |
+| inside a bullet or ordered-list item | that **item** |
+| inside a task | that **task** |
+| inside a paragraph with other text | that **paragraph** |
+| as the language of a fenced code block | that **`Object/data`** |
+
+So `- ADE fell 0.31 → 0.24 #result #aev` makes *that measurement* retrievable on its own,
+while `tags: result aev` in frontmatter only ever gets you back the page it's on. Tag the
+heading of a table (`## Simtest runs #simtest`) to make its rows findable.
+
+Frontmatter form: **space-separated bare words on one line** (`tags: worklog nvim`).
+Reserved frontmatter keys: `name` (don't set), `displayName`, `aliases`.
+
+Hashtag naming rules (`Markdown/Hashtags.md`): letters, dashes and underscores are fine;
+**no whitespace**, none of ``!@#$%^&*(),.?":{}|<>\``, and **not digits only** (`#123` is not a
+tag). Anything else needs angle brackets: `#<my tag>`.
+
+Never coin a tag blind — survey the vault first. Three things in these commands are
+load-bearing; drop any one and the survey silently misleads you or hangs:
+
+- **The explicit `.` path.** Given no path, ripgrep searches *stdin* whenever stdin is a pipe
+  — which is how it runs under an agent's shell tool — so it blocks forever waiting for EOF
+  and the survey dies on a timeout. `< /dev/null` also works (a char device is not treated as
+  readable stdin) but the path is the portable fix. This is the single most likely reason a
+  survey "hangs".
+- **`-I`.** Without it ripgrep prefixes each match with its path, and the path words get
+  counted as tags. That is why this vault appears to have tags named `the` and `table`.
+- **`--glob '*.md' --glob '!CLAUDE.md'`.** Only markdown pages are vocabulary, and the
+  allowlist keeps the walk off `~/worklog/.chrome-data`, a live 180M Chrome profile. Excluding
+  `CLAUDE.md` matters because its illustrative `#tag` examples would otherwise be counted as
+  real vault vocabulary and recommended back to the user as established tags.
+
+```bash
+cd ~/worklog
+G=(--glob '*.md' --glob '!CLAUDE.md')
+# frontmatter tags — page-level vocabulary
+rg -IN '^tags:' . "${G[@]}" | sed 's/^tags://' | tr ' ' '\n' | grep -v '^$' | sort | uniq -c | sort -rn
+# inline #hashtags — the separate, finer-grained vocabulary; survey it too
+# second alternative catches the angle-bracket form (#<my tag>) that allows spaces
+rg -INo '(^|\s)#(<[^>]+>|[a-zA-Z][a-zA-Z0-9/_-]*)' . "${G[@]}" | sed 's/^ *//' | sort | uniq -c | sort -rn
+# pages already linked, to link instead of duplicating
+rg -INo '\[\[[^]]+\]\]' . "${G[@]}" | sort | uniq -c | sort -rn
+```
+
+Then:
+
+1. Suggest **2–4**: one **kind**, one or two **subjects**, optionally one **project**.
+   Take the candidates from the survey output, not from this page — the vault is small and
+   its vocabulary moves, so any list written here goes stale and gets recommended back as
+   though it were established. As of 2026-09-17 the whole vocabulary was: frontmatter
+   `journal`, `simtest`, `aev`; inline `#aev`, `#Roshan`, `#cells`, `#link`, `#vlm`,
+   `#simtest`, `#reflection`, `#pages`, `#musing`, `#jPrefix`, `#eod`. Treat anything absent
+   from the survey as **new**, and say so.
+2. Singular, lowercase, no punctuation, for anything new. Existing tags don't all follow this
+   (`#Roshan`, `#jPrefix`) — match an existing tag's spelling rather than "correcting" it.
+3. Reuse an existing near-match rather than adding a synonym — `aev`, never `AEV` or
+   `aev-stop`.
 4. Say which are existing vs new, and why.
 
 ## When applying this skill
