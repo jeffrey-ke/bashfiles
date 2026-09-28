@@ -4,10 +4,10 @@
 [pull]
 	rebase = true
 [diff]
-	tool = vimdiff
+	tool = nvimdiff
 	algorithm = patience
 [merge]
-	tool = vimdiff
+	tool = nvimdiff
 [git]
 	editor = vim
 [difftool]
@@ -25,8 +25,21 @@
 	foreref = for-each-ref
 	mb = merge-base
 	mybrs = !git for-each-ref --sort=-committerdate --format='%(refname:short) %(committername)' refs/heads/ | grep Jeffrey
-	graph = log --graph --oneline --decorate
+	graph = log --graph --oneline --decorate --boundary
 	cp = cherry-pick
+	fdiff = diff --name-only
+	# Extra args after the two refs are appended as pathspecs, so exclusions
+	# work: git cdiff HEAD^ HEAD ':!*_test.py'
+	cdiff = "!f() { [ $# -ge 2 ] || { echo 'usage: git cdiff <ref> <ref> [pathspec...]' >&2; exit 1; }; a=$1; b=$2; shift 2; git difftool -y \"$a\" \"$b\" -- '*.py' '*.cc' '*.h' \"$@\"; }; f"
+	fonly ="!f() { [ $# -eq 1 ] || { echo 'usage: git fonly <branch>' >&2; exit 1; }; git fetch origin \"$1\"; }; f"
+	bfdiff = "!f() { base=$(git merge-base --fork-point \"${1:-origin/develop}\" HEAD) || exit 1; git diff --name-only \"$base\" HEAD; }; f"
+	rename = branch -m
+	rmrem = push origin --delete
+	# not `rm`: git silently ignores an alias that shadows a builtin
+	brm = branch -d
+	com = commit
+	ce = commit --amend --no-edit
+	cw = commit --amend
 [mergetool]
 	prompt = false
 [core]
