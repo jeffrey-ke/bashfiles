@@ -40,7 +40,15 @@ _source_path_aliases() {
 	return 0
 }
 
-if command -v zoxide >/dev/null 2>&1; then
+# Wrapped in a function so a machine file can re-run it. PSC keeps some tools in a
+# project env whose bin/ only joins PATH from machines/*.sh, i.e. after this file has
+# already run and given up; those files used to re-init zoxide by hand with a bare
+# `zoxide init bash`, which brings back zoxide's default `z` command -- clobbering the
+# z() timeout wrapper in .functions.sh, since machines/ is sourced last. Calling this
+# instead is idempotent (it only redefines the same three functions) and keeps `--cmd
+# cd` and the .aliases wrapper below as the single description of what zoxide is here.
+_init_zoxide() {
+	command -v zoxide >/dev/null 2>&1 || return 1
 	eval "$(zoxide init --cmd cd bash)"
 
 	# These wrap zoxide's own `cd`/`cdi`, so they have to live here, after the
@@ -57,7 +65,8 @@ if command -v zoxide >/dev/null 2>&1; then
 		__zoxide_zi "$@" || return $?
 		_source_path_aliases
 	}
-fi
+}
+_init_zoxide
 
 if command -v fzf >/dev/null 2>&1; then
 	eval "$(fzf --bash)"
@@ -191,6 +200,9 @@ if command -v fzf >/dev/null 2>&1; then
 	bind -m emacs-standard -x '"\C-r": _fzf_ctrl_r_shared'
 	bind -m vi-command -x '"\C-r": _fzf_ctrl_r_shared'
 	bind -m vi-insert -x '"\C-r": _fzf_ctrl_r_shared'
+
+	# Ctrl-G prefix pickers (Ctrl-G ? lists them); grab lives on M-g to leave Ctrl-G free.
+	[ -f "$HOME/dotfiles/fzf-git.sh/fzf-git.sh" ] && source "$HOME/dotfiles/fzf-git.sh/fzf-git.sh"
 fi
 
 if command -v grab >/dev/null 2>&1; then
@@ -201,9 +213,9 @@ if command -v grab >/dev/null 2>&1; then
 		READLINE_LINE="${READLINE_LINE:0:$READLINE_POINT}$sel${READLINE_LINE:$READLINE_POINT}"
 		READLINE_POINT=$((READLINE_POINT + ${#sel}))
 	}
-	bind -x '"\C-g": _grab_insert'
-	bind -m vi-insert -x '"\C-g": _grab_insert'
-	bind -m vi-command -x '"\C-g": _grab_insert'
+	bind -x '"\eg": _grab_insert'
+	bind -m vi-insert -x '"\eg": _grab_insert'
+	bind -m vi-command -x '"\eg": _grab_insert'
 fi
 
 if command -v yazi >/dev/null 2>&1; then

@@ -7,3 +7,6 @@
 [submodule "myvimtex"]
 	path = myvimtex
 	url = git@github.com:jeffrey-ke/myvimtex.git
+[submodule "fzf-git.sh"]
+	path = fzf-git.sh
+	url = https://github.com/junegunn/fzf-git.sh
