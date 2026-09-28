@@ -39,3 +39,7 @@ fi
 alias sb='sb-up'
 alias sbl='cd ~/worklog'
 alias sblog='tail -f ~/.local/share/silverbullet/server.log'
+
+# >>> path registry >>>
+export features_proto='/home/jke/repo/invisible-aev-track_dump/onboard/learned_behavior/features.proto'
+# <<< path registry <<<
