@@ -18,9 +18,10 @@ would shadow `.profile`).
 
 The installer is idempotent and self-contained — on a fresh machine `run.sh` alone is
 enough. It initializes the submodules (`jeffrey-ke/kickstart.nvim` as `nvim/`,
-`jeffrey-ke/commentstrip`), symlinks the configs, patches `.bashrc`, runs
+`jeffrey-ke/commentstrip`, `jeffrey-ke/myvimtex`, `junegunn/fzf-git.sh`), symlinks the configs, patches `.bashrc`, runs
 `./sync-skills.sh`, then runs `./install-tools.sh`. Its one prerequisite is a GitHub
-SSH key, since the repo and both submodule URLs are `git@github.com:`.
+SSH key, since the repo and the three `jeffrey-ke` submodule URLs are `git@github.com:`
+(fzf-git.sh is fetched over https).
 
 `./install-tools.sh` installs, into `~/.local/bin` without sudo: nvim, fd, rg, uv,
 claude, git-lfs, zoxide, fzf, yazi — plus bash-git-prompt, tpm, and vim-plug. Every
@@ -41,6 +42,17 @@ binary, so it has to compile (~1–2 min) and lands 7.x where Ubuntu's package i
 The `ug` alias and the `ugq` function are unavailable until you install it, by that
 command or `apt install ugrep`. Passing any tool name as an argument installs only
 those tools and skips the plugin managers.
+
+`mmdc` (mermaid-cli) is opt-in the same way — `./install-tools.sh mmdc` — and backs the
+inline ```mermaid rendering in nvim (`nvim/lua/custom/plugins/diagram.lua`). It is out of
+the default set because it is ~475 MB of node_modules and needs node plus a system
+Chrome. It installs to `~/.local/lib/mermaid-cli`, *not* `npm -g`, which would land in
+the version-scoped fnm node dir and vanish on the next node upgrade; `bin/mmdc` is the
+shim that points puppeteer at the system Chrome so no second Chromium is downloaded.
+Rendering also needs ImageMagick (`convert` + `identify`; v6 is fine) — image.nvim
+shells out to it only to read a PNG's dimensions, but errors out without it — and a
+terminal speaking the kitty graphics protocol. Any piece missing degrades a mermaid
+fence to a plain code block rather than erroring.
 
 ## Repository Structure
 
@@ -82,12 +94,12 @@ What does need a manual step per work repo is identity: `.gitconfig` carries a p
 
 | File | Purpose |
 |------|---------|
-| `.functions.sh` | 400+ line shell utility library: Docker helpers (`db`, `drun`, `dsa` with GPU/X11/USB), git helpers (`gso`, `gig`), rclone/Google Drive wrappers, `aa` for persistent alias creation |
+| `.functions.sh` | 400+ line shell utility library: Docker helpers (`db`, `drun`, `dsa` with GPU/X11/USB), git helpers (`gso`, `gig`), rclone/Google Drive wrappers, `aa` for persistent alias creation, and `z` — a wall-clock cap on any command (`z 1 n nv2 --enable-comms`). A bare duration is **hours**, `-s`/`-m` switch the unit, an `s`/`m`/`h`/`d` suffix passes through; `-k` (default 10s) escalates to SIGKILL, since a program that traps SIGTERM would otherwise outlive the limit; 124 means it hit the limit. Use `-S INT` for a glog-linked app (`n nv2`): glog registers SIGTERM as a *failure* signal, so the cap firing prints a full crash report with a stack trace, and SIGINT is not on its list. Two paths, because `timeout` alone cannot cap a command that forks the real work and exits — `n nv2` does: where a user systemd instance exists, `z` uses a `systemd-run --user --scope` cgroup with `RuntimeMaxSec` and holds the terminal while that cgroup still has tasks, listing them; elsewhere it falls back to `timeout --foreground`. The root cause, the measurements and the traps are in `.docs_claude/notes/timeout-cannot-cap-a-forking-launcher.md` |
 | `.bash_aliases` | Project-specific aliases and shortcuts |
 | `.bash_prompt` | The only place bash-git-prompt is sourced (three fallback locations), plus the `(VIM)` tag marking a shell spawned from inside vim/nvim |
 | `.bash_vars` | `EDITOR`/`GIT_EDITOR`, and `HISTCONTROL=ignoredups` overriding Ubuntu's stock `ignoreboth` |
-| `.bash_tools` | Shell integration for the installed tools: PATH, zoxide `cd`, the custom fzf Ctrl-T directory-hopping widget, `grab`'s Ctrl-G, yazi's `y` wrapper |
-| `.snippet_aliases` | A `key='value'` list of plaintext strings whose exact spelling isn't worth remembering (flag names, identifiers). Two consumers, one list: `.bashrc` sources it — unexported, so `$key` expands on the interactive command line without leaking into every child process — and `nvim/luasnippets/all.lua` reads the same file and emits one word-trigger snippet per key. `all` is LuaSnip's every-buffer filetype (`get_snippet_filetypes()` appends it, `util/util.lua:303`) and blink.cmp's luasnip source walks that same function, so the triggers reach the completion menu in *every* filetype with no ftdetect glue. `<leader>rs` (`:ReloadSnippets`) re-reads it; no installer re-run. Both parsers reject spaces around `=`, matching bash, so no line can work in nvim while silently failing in the shell. Written by hand, listed with `sl`, or set with `sa <key> <value>`, which rewrites the file *through* the `~` symlink (`awk` to a temp, then `cat >`) rather than with `sed -i` — `sed -i` replaces the path, which would orphan the edit in `$HOME` and silently stop it reaching git. `aa` has that bug on `~/.bash_aliases`. `sa`/`sl` read values by sourcing the file in a subshell rather than re-parsing it, so bash's own quote rules stay the single authority and only `all.lua` has to match them |
+| `.bash_tools` | Shell integration for the installed tools: PATH, zoxide `cd`, the custom fzf Ctrl-T directory-hopping widget, fzf-git.sh's Ctrl-G pickers (`Ctrl-G ?` lists them), `grab` on Alt-G, yazi's `y` wrapper. The zoxide block is the function `_init_zoxide` (called once here) so a machine file can re-run it after putting zoxide on PATH — the PSC files used to re-`eval` a bare `zoxide init bash`, which re-adds zoxide's default `z` command, and `machines/` is sourced *after* `.functions.sh`, so it would have silently clobbered `z`. Keeping `--cmd cd` in one place is what reserves `z` for the wall-clock cap |
+| `.snippet_aliases` | A `key='value'` list of plaintext strings whose exact spelling isn't worth remembering (flag names, identifiers). Two consumers, one list: `.bashrc` sources it — unexported, so `$key` expands on the interactive command line without leaking into every child process — and `nvim/luasnippets/all.lua` reads the same file and emits one word-trigger snippet per key. `all` is LuaSnip's every-buffer filetype (`get_snippet_filetypes()` appends it, `util/util.lua:303`) and blink.cmp's luasnip source walks that same function, so the triggers reach the completion menu in *every* filetype with no ftdetect glue. `<leader>rs` (`:ReloadSnippets`) re-reads it; no installer re-run. Both parsers reject spaces around `=`, matching bash, so no line can work in nvim while silently failing in the shell. Written by hand, listed with `sl`, set with `sa <key> <value>`, removed with `srm <key>` — the same add/list/remove trio as the path registry's `pp`/`pl`/`prm`. `sa` and `srm` rewrite the file *through* the `~` symlink (`awk` to a temp, then `cat >`) rather than with `sed -i` — `sed -i` replaces the path, which would orphan the edit in `$HOME` and silently stop it reaching git. `aa` has that bug on `~/.bash_aliases`. `sa`/`sl`/`srm` read values by sourcing the file in a subshell rather than re-parsing it, so bash's own quote rules stay the single authority and only `all.lua` has to match them; `srm` is the exception, taking existence from the line-based lister so a hand-written `k=''` is still removable |
 | `.tmux.conf` | Prefix=Ctrl-Space, vim-style pane nav (hjkl / HJKL to swap), vi copy mode |
 | `.visidatarc` | Two layers. (1) Clipboard transport: the syscopy commands go to `tmux load-buffer -w -` inside tmux (tmux then emits OSC 52 to the attached client) or `bin/osc52-copy` outside it, because the stock `xclip` default writes the *remote* X clipboard and a headless ssh login has neither xclip nor `$DISPLAY`. (2) A vim layer: `y` cell / `yy` row / `Y` row (a `beforeExecHooks` state machine, since a bound key can never also act as a prefix — `mainloop.py:242` before `:248`); `:` command line taking literal text (not `exec-longname`, whose Enter takes the top *fuzzy* match), with `addcol-split` relocated to `g:`; `vim-`-namespaced verbs `:vs :sp :only :e (Tab-completes paths) :E :ls :b :bn `:bp :bd :q :qa :w` — namespaced because `getCommand` chases keystroke aliases first, so a longname `e` is unreachable behind the `e` key; a real side-by-side split via a `vd.setWindows` override (upstream is stacked-only); `Ctrl+W` as a window prefix (`hjklw` swap, `v`/`s` split, `c`/`o` close, `x` exchange); `Ctrl+D`/`Ctrl+U` half-page. Every displaced binding is deliberate: `Sheet` is `TableSheet` (`sheets.py:1092`) and `addCommand` overwrites the stock slot *silently*. The keybind manual, the testing rig, and 12 traps are in `.docs_claude/plans/completed/visidata-clipboard-and-vim-keybindings.md` |
 | `nvim/init.lua` | Kickstart.nvim fork — ~1350-line Lua config; read top-to-bottom to understand plugin/keymap layout. Forked from upstream at `3338d39` (2025-05-22); upstream has since dropped lazy.nvim for `vim.pack`, so it can no longer be merged — see the divergence note below |
@@ -176,6 +188,7 @@ check this directory directly before re-investigating a "why is X slow / broken"
 | `claude-code-fullscreen-scrollback.md` | Why tmux copy mode / `capture-pane` see only the visible frame of a Claude Code pane (fullscreen renderer draws to the alternate screen, `history_size=0`), and the `Ctrl+o` `{`/`}` per-exchange navigation that replaces a tmux binding |
 | `claude-session-tmux-pane-lookup.md` | How a tmux pane resolves to the Claude session running in it (`~/.claude/sessions/<pid>.json`), and the four traps: `sdk-cli` one-shots, no `TMUX_PANE` under `run-shell`, `read` exiting 1 on the missing trailing newline, no `/proc` on macOS |
 | `rg-over-ssh-reads-stdin.md` | Why a remote `rg` finds nothing on a file that clearly matches — no path argument means it searches stdin, which `ssh host cmd` leaves empty — and the two different silent-empty modes of a remote grep |
+| `timeout-cannot-cap-a-forking-launcher.md` | Why `timeout 1h <launcher>` returns in milliseconds with status 0 and never caps anything — it waits on and signals only its direct child — why dropping `--foreground` does not fix it, and the `systemd-run --scope` + `RuntimeMaxSec` cgroup that does, with its five traps |
 | `silverbullet-space-outside-the-browser.md` | What editing `~/worklog` in nvim can and cannot reach: no server-side index (disk is the truth), `Library/Std/*` pages that exist only inside the binary, `index.md` as Space Lua rather than links, wikilink resolution rules, and why `sbj` runs nvim over ssh instead of `scp://` |
 
 ## Adding a New Skill
