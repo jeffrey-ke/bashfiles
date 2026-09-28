@@ -26,9 +26,13 @@
 # readers can disagree. `sa` only ever writes single quotes.
 #
 # `sa <key> <value>` (in .functions.sh) appends or updates an entry without
-# opening this file, and sets it in the calling shell at the same time.
+# opening this file, and sets it in the calling shell at the same time. `sl`
+# lists what is registered; `srm <key>` deletes an entry (every line for that
+# key, so a hand-edited duplicate goes too) and unsets it in the calling shell.
 #
 # After editing: `<leader>rs` in nvim (:ReloadSnippets) and a new shell (or
 # `source ~/.snippet_aliases`) for bash. No installer re-run needed.
 
 aevRbf_toggle='enable_aev_intersection_yield'
+features_path='onboard/learned_behavior/features.proto'
+model_ckpts_file='onboard/models/joint_ilp_mh/model_release_metadata.json'

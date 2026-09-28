@@ -560,6 +560,8 @@ obgrab() {
 # machines/<hostname>.sh (git-tracked, already sourced by .bashrc) -> per-machine.
 # A $var expands in ANY position on the command line (unlike an alias) and
 # $name/<TAB> tab-completes subdirs. Register with pp, list pl, remove prm, jump to.
+# A registration may be a file as well as a directory (`pp cfg ~/very/deep/conf.yaml`);
+# only `to` cares about the difference, and it cd's to a file's parent directory.
 
 _pr_file() { printf '%s\n' "$HOME/dotfiles/machines/$(hostname -s).sh"; }
 _pr_begin='# >>> path registry >>>'
@@ -603,10 +605,10 @@ pp() {
 		echo "Error: '$name' is not a valid variable name."
 		return 1
 	fi
-	# Reject non-existent paths: require an existing directory.
+	# Reject non-existent paths: require an existing file or directory.
 	local path
-	if ! path="$(realpath -e -- "$raw" 2>/dev/null)" || [ ! -d "$path" ]; then
-		echo "Error: '$raw' is not an existing directory."
+	if ! path="$(realpath -e -- "$raw" 2>/dev/null)"; then
+		echo "Error: '$raw' does not exist."
 		return 1
 	fi
 	if type "$name" >/dev/null 2>&1; then
@@ -637,7 +639,11 @@ pp() {
 		{ print }' "$file" >"$tmp" && cat -- "$tmp" >"$file"
 	rm -f -- "$tmp"
 	echo "Registered \$$name -> $path"
-	echo "Use anywhere, e.g.: ls \$$name/   cd \$$name   to $name"
+	if [ -d "$path" ]; then
+		echo "Use anywhere, e.g.: ls \$$name/   cd \$$name   to $name"
+	else
+		echo "Use anywhere, e.g.: nvim \$$name   cat \$$name   to $name   (cd's to its dir)"
+	fi
 }
 
 pl() {
@@ -698,8 +704,12 @@ to() {
 		return 1
 	}
 	local target="${!name}"
+	# A file registration jumps to its containing directory -- `to` is the only
+	# consumer that needs a directory; every other use ($name splatted into a
+	# command line) wants the file path itself.
+	[ -f "$target" ] && target="$(dirname -- "$target")"
 	[ ! -d "$target" ] && {
-		echo "Error: \$$name -> '$target' is not a directory."
+		echo "Error: \$$name -> '${!name}' is not a file or directory."
 		return 1
 	}
 	builtin cd -- "$target" # bypass the zoxide cd() wrapper for a deterministic jump
@@ -712,12 +722,45 @@ _pr_complete() {
 complete -F _pr_complete to
 complete -F _pr_complete prm
 
+# --- repo root: gx <repo-relative path> -> absolute path ---
+# Lets a path be typed the way it is written down (in a PR, a BUILD label, a grep
+# hit) from any subdirectory: nvim "$(gx perception/labeling/foo.py)". No argument
+# echoes the root itself. Fails loudly outside a repo -- git's own message, on stderr.
+gx() {
+	local top
+	top=$(git rev-parse --show-toplevel) || return 1
+	printf '%s\n' "$top${1:+/$1}"
+}
+
+# $root is gx with no typing: bash expands a $var before filename completion (but will
+# never run a command substitution to do it), so `nvim $root/perc<TAB>` completes from
+# the root while `$(gx perc<TAB>` completes from $PWD. Same deal as the path registry
+# above, only the value tracks $PWD's checkout instead of being fixed per machine.
+#
+# Refreshed per prompt rather than from the cd() wrapper, because zoxide's z() and
+# pushd both reach a new directory without passing through it. Outside a repo $root
+# names a path that cannot exist, so a habit-typed command fails loudly instead of
+# quietly resolving against /. Not exported: a typing aid, not environment for
+# children -- and $root is a name build systems help themselves to.
+_root_var() { root=$(gx 2>/dev/null) || root=/dev/null/not-in-a-git-repo; }
+_root_var
+# Guarded because `fresh` re-sources .bashrc; array-aware because bash-git-prompt may
+# leave either shape (it appends to what it finds, so arriving first is fine).
+if [[ "${PROMPT_COMMAND[*]}" != *_root_var* ]]; then
+	if declare -p PROMPT_COMMAND &>/dev/null && [[ $(declare -p PROMPT_COMMAND) == "declare -a"* ]]; then
+		PROMPT_COMMAND+=('_root_var')
+	else
+		PROMPT_COMMAND="${PROMPT_COMMAND:+$PROMPT_COMMAND;}_root_var"
+	fi
+fi
+
 # --- snippet alias registry: short key -> a plaintext string you can't spell ---
 # Mechanism here; data in ~/.snippet_aliases. Unlike the path registry above this is
 # NOT machine-specific -- a flag name is spelled the same everywhere -- so the data
 # lives in one git-tracked file rather than in machines/<hostname>.sh. That file has
 # two readers: .bashrc sources it (so `$key` expands on the command line, unexported)
 # and nvim/luasnippets/all.lua parses it into a snippet active in every filetype.
+# Register with sa, list sl, remove srm -- the sibling of the path registry's pp/pl/prm.
 
 _sa_file() { printf '%s\n' "$HOME/.snippet_aliases"; }
 
@@ -848,6 +891,53 @@ sl() {
 	printf '%s\n' "$pairs" | column -t -s $'\t'
 }
 
+srm() {
+	if [ $# -ne 1 ]; then
+		echo "Usage: srm <key>   (remove a text alias; \`sl\` lists them)"
+		return 1
+	fi
+	local name="$1"
+	if ! [[ "$name" =~ ^[a-zA-Z_][a-zA-Z0-9_]*$ ]]; then
+		echo "Error: '$name' is not a valid variable name."
+		return 1
+	fi
+	# Existence is decided by _sa_names, not by _sa_get: a hand-written `k=''`
+	# is a line the awk rewrite below would delete, but sourcing it yields the
+	# empty string, so _sa_get cannot tell it from an unregistered key.
+	if ! _sa_names | grep -qxF -- "$name"; then
+		echo "'$name' is not a registered text alias."
+		return 1
+	fi
+	# Read the value first, so the confirmation line doubles as the undo command.
+	local previous
+	previous="$(_sa_get "$name")"
+
+	local file
+	file="$(_sa_file)"
+	# Unsets rather than restores: if this key shadowed a real environment
+	# variable, that variable is gone from this shell too (a new shell has it
+	# back). Same trade prm makes, and the warning sa prints on register is
+	# where that gets flagged.
+	unset -v "$name"
+
+	local tmp
+	tmp="$(mktemp -- "${file}.XXXXXX")" || return 1
+	# No `done` guard, unlike sa: every matching line goes, so a file
+	# hand-edited into duplicates comes out clean. `cat >` for the same reason
+	# as sa -- $file is the ~/.snippet_aliases symlink, and sed -i / mv would
+	# replace the path and strand the edit in $HOME instead of the repo.
+	awk -v re="$(printf "$_sa_re" "$name")" '$0 ~ re { next } { print }' \
+		"$file" >"$tmp" && cat -- "$tmp" >"$file"
+	rm -f -- "$tmp"
+
+	# The undo line is meant to be pasted back, so the value takes the same
+	# close-escape-reopen treatment sa gives it before writing the file --
+	# otherwise a value containing a quote prints as invalid bash.
+	echo "Removed \$$name (was: '$previous')"
+	echo "Undo with: sa $name '${previous//\'/\'\\\'\'}'"
+	echo "Gone from this shell; nvim needs <leader>rs, other shells a restart."
+}
+
 _sa_complete() {
 	# Keys on the first argument only -- the second is free text, not a key.
 	[ "$COMP_CWORD" -eq 1 ] || return 0
@@ -855,6 +945,7 @@ _sa_complete() {
 	COMPREPLY=($(compgen -W "$(_sa_names)" -- "$cur"))
 }
 complete -F _sa_complete sa
+complete -F _sa_complete srm
 
 # --- artifact registry: dataset / asset / checkpoint over HF (see `art`) ---
 # Thin wrappers over the `art` tool (~/dotfiles/bin/art, on PATH). Each namespace
@@ -986,4 +1077,222 @@ vimrun() {
 	local file
 	file=$(vimtemp sh) || { echo "vimtemp failed; nothing spawned" >&2 && return 1; }
 	bgrun -n "$1" "$file"
+}
+_z_usage() {
+	cat >&2 <<-'EOF'
+		Usage: z [-s|-m|-h] [-k GRACE] [-S SIG] <duration> <command> [args...]
+
+		  z 1 n nv2 --enable-comms    run for one hour -- a bare number is hours
+		  z -s 30 ./poll-once         seconds
+		  z -m 90 pytest -x           minutes
+		  z 45m ./train.py            an explicit s/m/h/d suffix works too
+
+		  -k GRACE   SIGKILL this long after the first signal (default 10s)
+		  -S SIG     send SIG instead of TERM (-S INT to imitate Ctrl-C)
+	EOF
+}
+
+# Seconds from a duration in timeout/systemd syntax (30s, 90m, 1.5h, 2d). Only
+# used to decide whether the limit is what ended the run, so integer truncation
+# of something like 1.5s is immaterial.
+_z_secs() {
+	awk -v d="$1" 'BEGIN {
+		u = substr(d, length(d)); n = d + 0
+		if (u == "m") n *= 60
+		else if (u == "h") n *= 3600
+		else if (u == "d") n *= 86400
+		printf "%d", n
+	}'
+}
+
+# Is there a user systemd instance to hang a transient cgroup off? The bus socket
+# is the test rather than `systemctl --user is-system-running`, which exits
+# non-zero for a merely *degraded* instance that would still run a scope fine.
+_z_have_scope() {
+	[[ -S ${XDG_RUNTIME_DIR:-/nonexistent}/bus ]] && command -v systemd-run >/dev/null 2>&1
+}
+
+# The pid + command line of everything still inside a scope's cgroup. This is the
+# answer to "what am I waiting for", and it is worth printing: if a build tool's
+# long-lived server got started inside the cgroup, it is listed here and the
+# limit will eventually kill it too.
+_z_scope_tasks() {
+	local cg procs pids
+	cg=$(systemctl --user show -p ControlGroup --value "$1" 2>/dev/null)
+	[[ -n $cg ]] || return 1
+	procs="/sys/fs/cgroup${cg}/cgroup.procs"
+	[[ -r $procs ]] || return 1
+	pids=$(tr '\n' ',' <"$procs")
+	pids=${pids%,}
+	[[ -n $pids ]] || return 1
+	ps -o pid=,args= -p "$pids" 2>/dev/null
+}
+
+# Is the scope still running anything? `systemctl is-active` is the wrong test and
+# fails in the one direction that matters: the instant the cap fires the unit enters
+# **deactivating**, where is-active already answers no while every process in the
+# cgroup is still running its exit path. For a glog-linked app that path is a SIGTERM
+# handler symbolizing a stack trace, which takes seconds -- so z returned, bash drew a
+# prompt, and the trace landed on top of it. That is the symptom this whole function
+# exists to prevent, reintroduced at the last second of the run.
+_z_scope_live() {
+	local st
+	st=$(systemctl --user show -p ActiveState --value "$1" 2>/dev/null)
+	[[ -n $st && $st != inactive && $st != failed ]]
+}
+
+# Reads dur/grace/sig from its caller's locals -- bash locals are visible to
+# callees, the same dynamic scoping _source_path_aliases relies on in .bash_tools.
+#
+# A cgroup is the only container a process *tree* cannot leave. timeout(1) waits
+# on and signals its direct child alone, so a launcher that forks the real work
+# and exits -- nuro-cli's `n nv2 --enable-comms` does exactly that -- makes
+# timeout return in milliseconds with status 0, the limit never applies, and the
+# orphan keeps writing to the tty underneath a returned prompt. That was the bug
+# this path exists to fix. systemd enforces RuntimeMaxSec against every task in
+# the cgroup, so forking, double-forking and setsid all fail to escape it.
+#
+# Two properties fall out of the cap living in systemd rather than in z. The
+# limit outlives z, so Ctrl-C while waiting gives the prompt back *without*
+# losing the deadline; and KillMode defaults to control-group for a scope, so the
+# signal reaches the whole tree instead of only the process z happened to spawn.
+_z_scope() {
+	local unit="z-$$-$RANDOM.scope" t0=$SECONDS rc
+	systemd-run --user --scope --quiet --collect --unit="$unit" \
+		--property=RuntimeMaxSec="$dur" \
+		--property=TimeoutStopSec="$grace" \
+		--property=KillSignal="SIG${sig#SIG}" \
+		-- "$@"
+	rc=$?
+
+	# A still-active scope means the command left work behind. Hold the terminal
+	# until the cgroup drains: a returned prompt with the job still printing into
+	# it is the symptom, not merely untidy.
+	if _z_scope_live "$unit"; then
+		local interrupted="" announced="" tasks
+		tasks=$(_z_scope_tasks "$unit")
+		echo "z: '$1' exited but left these running:" >&2
+		[[ -n $tasks ]] && sed 's/^/  /' <<<"$tasks" >&2
+		echo "z: holding until they finish or hit $dur -- Ctrl-C returns the prompt, the limit still fires" >&2
+		trap 'interrupted=1' INT
+		while _z_scope_live "$unit"; do
+			[[ -n $interrupted ]] && break
+			# Say so once on the way into teardown. Without this the only thing on
+			# screen is whatever the dying program prints -- for nv2, a glog SIGTERM
+			# stack trace that reads exactly like a crash.
+			if [[ -z $announced ]] &&
+				[[ $(systemctl --user show -p ActiveState --value "$unit" 2>/dev/null) == deactivating ]]; then
+				announced=1
+				echo "z: limit reached -- SIG$sig sent to the whole cgroup, SIGKILL in $grace; waiting for it to go" >&2
+			fi
+			sleep 2
+		done
+		trap - INT
+		if [[ -n $interrupted ]]; then
+			echo "z: stopped waiting; systemd still ends it at $dur" >&2
+			return 130
+		fi
+	fi
+
+	# The limit is systemd's, so there is no 124 from timeout to read it off --
+	# elapsed time is the signal. Report the same 124 anyway, so the documented
+	# "124 means it timed out" holds whichever path ran and `z 1 thing || retry`
+	# does not silently treat a killed run as a clean one.
+	if ((SECONDS - t0 >= $(_z_secs "$dur"))); then
+		echo "z: hit the $dur limit" >&2
+		return 124
+	fi
+	return $rc
+}
+
+# The portable path: macOS, and PSC compute nodes inside a Slurm job, have no
+# user systemd instance. --foreground is what makes it usable interactively --
+# without it timeout puts the child in its own process group, so Ctrl-C from the
+# terminal never reaches it and it is stopped by SIGTTIN/SIGTTOU the first time
+# it reads the tty. The flag's documented cost is exactly why the scope path is
+# preferred where it exists: only the direct child is ever signalled, so a
+# forking launcher escapes the limit here. That is fine for what actually runs on
+# those machines -- training scripts that stay in the foreground -- and wrong for
+# a launcher, so prefer a scope when you have one.
+_z_timeout() {
+	local timeout_bin rc
+	timeout_bin=$(command -v timeout || command -v gtimeout) || {
+		echo "z: no timeout(1) -- it comes from GNU coreutils (macOS: brew install coreutils)" >&2
+		return 127
+	}
+	"$timeout_bin" --foreground -k "$grace" -s "$sig" "$dur" "$@"
+	rc=$?
+	((rc == 124 || rc == 137)) && echo "z: hit the $dur limit" >&2
+	return $rc
+}
+
+# Run something under a wall-clock limit, then kill it.
+#
+#   z 1 n nv2 --enable-comms     one hour, then shut the whole tree down
+#
+# -k is on by default because SIGTERM is a request: a program that traps and
+# ignores it outlives the limit, which defeats the point of asking for one.
+# Every exit status other than the interrupted-while-waiting 130 is the command's
+# own, so `z 5m make && deploy` still means what it reads like.
+z() {
+	local tunit=h grace=10s sig=TERM dur=""
+	# The loop does not stop at the duration, so `z -s 30 -k 5 cmd` and
+	# `z -k 5 -s 30 cmd` are the same request -- `-s` reads as if it took the
+	# number, and writing the two flags in the order they come to mind should not
+	# quietly hand `-k 5` to the command as argv. Instead the first bare word is
+	# the duration and the second ends the loop, which is unambiguous because a
+	# command name never starts with a dash; its own flags come after it and are
+	# never seen here.
+	while (($#)); do
+		case "$1" in
+		-s) tunit=s ;;
+		-m) tunit=m ;;
+		-h) tunit=h ;;
+		-k)
+			grace="$2"
+			shift
+			;;
+		-S)
+			sig="$2"
+			shift
+			;;
+		--help)
+			_z_usage
+			return 0
+			;;
+		--)
+			shift
+			break
+			;;
+		*)
+			[[ -n $dur ]] && break
+			dur="$1"
+			;;
+		esac
+		shift
+	done
+
+	if [[ -z $dur ]] || (($# == 0)); then
+		_z_usage
+		return 1
+	fi
+
+	# A bare number takes the unit flag (hours by default); a suffixed one is
+	# already in the syntax both timeout and systemd accept, and goes through
+	# untouched. Validated here rather than left to either of them, whose
+	# complaint about a typo'd duration names neither z nor the command that
+	# never ran.
+	if [[ $dur =~ ^[0-9]+(\.[0-9]+)?$ ]]; then
+		dur="$dur$tunit"
+	elif [[ ! $dur =~ ^[0-9]+(\.[0-9]+)?[smhd]$ ]]; then
+		echo "z: '$dur' is not a duration (try 1, 30, 45m, 1.5h)" >&2
+		return 1
+	fi
+
+	echo "z: $dur limit on: $*" >&2
+	if _z_have_scope; then
+		_z_scope "$@"
+	else
+		_z_timeout "$@"
+	fi
 }

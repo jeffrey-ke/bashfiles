@@ -200,3 +200,17 @@ machines (e.g. jeffpro) would need minor adaptation and aren't in scope here.
 7. `to <TAB>` → completes `proj`; `to proj` → cwd changes to the registered dir.
 8. `prm proj` → unset in session and line removed from the block; `pl` no longer lists it.
 9. `git -C ~/dotfiles diff machines/tesu.sh` → shows the registry changes, ready to commit.
+
+## Follow-up: files, not just directories (2026-09-21)
+
+The "reject anything that isn't an existing directory" decision above was too narrow — a
+deep path worth naming is often a single file (a config, a checkpoint, a log). `pp` now
+accepts **any existing path**; only the error message and `realpath -e` gate remain
+(`realpath -e` already covers existence, so the `[ ! -d ]` test was redundant with it once
+files are allowed).
+
+`to` is the only consumer that needs a directory, so it resolves a file registration to
+its parent: `[ -f "$target" ] && target="$(dirname -- "$target")"`. Everything else — the
+whole point of the registry, `$name` splatted anywhere on the command line — wants the file
+path itself (`nvim $cfg`, `cat $cfg`). `pl`, `prm`, and completion are unchanged; the
+marker block format is identical, so existing registrations keep working.
