@@ -34,6 +34,7 @@ When a plan is added, copied, moved, renamed, or deleted:
 
 ## Chronological index
 
+- **2026-09-28** — [annotations-survive-checkouts.md](../nvim/.docs_claude/plans/completed/annotations-survive-checkouts.md) `nvim/lua/custom/anchor.lua`, `nvim/lua/custom/haunt_anchor.lua`, `nvim/lua/custom/hi_store.lua`, `nvim/lua/custom/annot.lua`
 - **2026-08-26** — [claude-conversation-keep-and-resume.md](plans/completed/claude-conversation-keep-and-resume.md) `bin/ccpaths`, `bin/ccstash`, `bin/ccsave`, `bin/ccresume`, `bin/ccfind`, `.tmux.conf`
 - **2026-08-19** — [dir-aliases-every-nav-entry-point.md](plans/completed/dir-aliases-every-nav-entry-point.md) `.bash_tools`
 - **2026-08-19** — [visidata-clipboard-and-vim-keybindings.md](plans/completed/visidata-clipboard-and-vim-keybindings.md) `.visidatarc`, `bin/osc52-copy`
@@ -68,6 +69,29 @@ When a plan is added, copied, moved, renamed, or deleted:
 ---
 
 ## 1. Nvim: Editing, Git & Highlighting
+
+### [annotations-survive-checkouts.md](../nvim/.docs_claude/plans/completed/annotations-survive-checkouts.md)
+`~/dotfiles/nvim/lua/custom/{anchor,haunt_anchor,hi_store,annot}.lua`, `nvim/lua/custom/plugins/{haunt,highlighter}.lua` · 2026-09-28
+> haunt notes and vim-highlighter washes vanished on `git checkout` and never reached a
+> new worktree: haunt keyed its store per branch (`per_branch_bookmarks = true`), and the
+> wash store was keyed by absolute path. Sharing the stores exposed the real problem —
+> both plugins persist only a line number, and a reload (`:e`, autoread after a checkout)
+> leaves extmarks *frozen at their old rows* rather than moving or dropping them, so the
+> old `BufWinEnter` guard kept the wrong rows and then saved them. Fixed with a content
+> anchor per mark (line text plus two non-blank neighbours each side, whitespace
+> stripped) that is looked up again before anything is drawn, a `BufReadPre` detach so
+> the frozen marks can neither block the restore nor overwrite the resolved line, and a
+> per-repo (root commit + relative path) wash store that recreates the plugin's own
+> extmarks. A line that is gone keeps its old number, shows `⚠`, and keeps its anchor
+> until the text comes back.
+>
+> **Key changes:**
+> - `+ lua/custom/anchor.lua` — pure `capture` / `resolve` / `resolve_span` over a lines array; `tests/anchor_spec.lua` runs headless
+> - `+ lua/custom/haunt_anchor.lua` — wraps `persistence._build_serializable` (anchor into JSON) and `restoration.restore_buffer_bookmarks` (resolve before draw); `BufReadPre` sync-then-detach; `BufWritePost` capture + `store.save()`; `:HauntMergeBranches` folds the old per-branch files into the shared key
+> - `+ lua/custom/hi_store.lua` — replaces `:Hi save/load`: `<data>/highlighter/<root commit>/<relpath>.json`, marks placed in the `HiColor` namespace, `BufReadPre`/`BufReadPost` load, `:AnnotMigrateHl` converts the old `.hl` files; pattern highlights no longer persisted
+> - `~ lua/custom/annot.lua` — persistence section removed; stale-aware note redraw
+> - `~ lua/custom/plugins/haunt.lua` — `per_branch_bookmarks = false`, installs `haunt_anchor`
+> - `~ lua/custom/plugins/highlighter.lua` — autocmds move to `hi_store.setup()`; `<leader>Hl` is a re-load
 
 ### [tmux-nvim-inactive-pane-dimming.md](plans/completed/tmux-nvim-inactive-pane-dimming.md)
 `~/dotfiles/.tmux.conf`, `~/dotfiles/nvim/init.lua` · 2026-08-18
