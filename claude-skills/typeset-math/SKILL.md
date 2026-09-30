@@ -1,0 +1,57 @@
+---
+name: typeset-math
+description: Typesets math: writes the answer as markdown with LaTeX, renders the equations locally, and opens them in a tmux split beside the chat. Use when a reply needs equations, derivations or proofs, or for "typeset this", "show me the math".
+allowed-tools: Bash(mdmath *), Bash(tview *)
+---
+
+# Typeset Math
+
+The chat renders LaTeX as raw source and eats its backslashes (`\;` shows as `;`). When a
+reply needs real equations, typeset them in a pane beside the chat instead.
+
+Skip this for a stray symbol or two: inline Unicode in chat is fine for that.
+
+## 1. Write the answer as markdown
+
+Write the full answer to `<scratchpad>/math/<slug>.md`:
+
+- Display math in `$$ … $$` (or `\[ … \]`), inline math in `$ … $`.
+- amsmath and amssymb are loaded, plus `\bm`. `align*`, `gather*`, `cases`, `pmatrix` and
+  `\operatorname` all work. Write the LaTeX itself in ASCII, with no Unicode symbols inside
+  it.
+- Prose, headings, lists and code blocks render through glow.
+
+## 2. Check it compiles
+
+```bash
+mdmath --check <file>
+```
+
+Each failing block is reported as `<file>:<line>: block N failed` plus the TeX error, and
+the exit code is 1. Fix the blocks and re-run until it prints `N/N blocks compiled`.
+Rendering is local (tectonic) and cached, so re-runs are fast.
+
+## 3. Open it beside the chat
+
+```bash
+tview split --name math -- mdmath <file>
+```
+
+This reuses the `math` pane if one is already open, and keeps focus on the chat. The pane
+pages the result in `less`, where `q` closes it. Equations are kitty images drawn with Unicode
+placeholders, so they scroll, search and resize with the text.
+
+## 4. Reply in chat
+
+Keep the chat reply to prose. Give the key result in plain Unicode (e.g. `ā = Δv/Δt`) and
+say the full derivation is in the math pane. Don't paste the LaTeX into chat.
+
+## Variants
+
+- **"Pop it up":** use `tview popup -- mdmath --unicode <file>`. It's text-only math: a tmux
+  popup doesn't pass image escapes through or report pixel sizes, so real typesetting only
+  works in the split.
+- **Existing markdown** (e.g. explain-math's output): open it with step 3 directly.
+- **Images missing after a terminal restart or reattach:** Ghostty drops them. Re-run step 3
+  to send them again.
+- **Not inside tmux:** `tview` exits 1. Answer in chat instead.

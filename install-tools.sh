@@ -236,13 +236,29 @@ install_git_lfs() {
 	fetch_tar_bin git-lfs/git-lfs "linux-${arch}-v.*\.tar\.gz" git-lfs
 }
 
+# Markdown renderer behind mdmath.
+install_glow() {
+	if [ "$(uname -s)" = "Darwin" ]; then
+		command -v brew >/dev/null 2>&1 || return 1
+		brew install glow
+		return
+	fi
+	local arch
+	case "$(uname -m)" in
+		x86_64) arch=x86_64 ;;
+		aarch64) arch=arm64 ;;
+		*) return 1 ;;
+	esac
+	fetch_tar_bin charmbracelet/glow "Linux_${arch}\.tar\.gz" glow
+}
+
 if [ "${BASH_SOURCE[0]}" = "$0" ]; then
 	# No arguments: the default set. Arguments: exactly those tools, and skip the
 	# plugin managers — that path exists to install one thing (usually `ug`).
 	if [ "$#" -gt 0 ]; then
 		tools=("$@")
 	else
-		tools=(zoxide fzf yazi nvim fd rg uv claude git-lfs tmux)
+		tools=(zoxide fzf yazi nvim fd rg uv claude git-lfs tmux glow)
 	fi
 
 	# Run the tool to prove it actually executes — the check that catches a

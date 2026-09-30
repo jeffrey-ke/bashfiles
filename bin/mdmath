@@ -1,0 +1,402 @@
+#!/usr/bin/env -S uv run --quiet --script
+# /// script
+# requires-python = ">=3.12"
+# dependencies = ["pillow>=10", "pylatexenc>=2.10"]
+# ///
+"""mdmath -- typeset the math in a markdown file for a terminal.
+
+Usage:
+    mdmath FILE              render for a pager: display math as kitty images, prose through glow
+    mdmath --check FILE      compile only; report each failing block and exit 1 if any
+    mdmath --unicode FILE    no images: all math as Unicode text
+    mdmath --dry-run FILE    parse only; print the segments found as JSON
+
+Display math ($$...$$, \\[...\\]) is compiled locally with tectonic, so nothing leaves the
+machine, and cached as PNGs under ~/.cache/mdmath. Inline $...$ becomes Unicode.
+
+Images are drawn with kitty Unicode placeholders
+(https://sw.kovidgoyal.net/kitty/graphics-protocol/#unicode-placeholders): each PNG is sent
+once to the terminal (through tmux passthrough when inside tmux) and then drawn by grids of
+U+10EEEE text cells, so any pager can scroll it like text. It must run on the terminal it
+draws to, e.g. inside the pane `tview split -- mdmath FILE` opens.
+"""
+
+import argparse
+import base64
+import fcntl
+import hashlib
+import io
+import json
+import math
+import os
+import re
+import select
+import shutil
+import struct
+import subprocess
+import sys
+import tempfile
+import termios
+import tty
+from dataclasses import asdict, dataclass
+from pathlib import Path
+
+from PIL import Image
+from pylatexenc.latex2text import LatexNodes2Text
+
+CACHE = Path(os.environ.get("MDMATH_CACHE", Path.home() / ".cache" / "mdmath"))
+DIACRITICS_FILE = Path(__file__).resolve().parent / "rowcolumn-diacritics.txt"
+PLACEHOLDER = "\U0010EEEE"
+
+FENCE = re.compile(r"^ {0,3}(`{3,}|~{3,})")
+CODE_SPAN = re.compile(r"(`+).+?\1", re.S)
+DISPLAY = re.compile(r"\$\$(.+?)\$\$|\\\[(.+?)\\\]", re.S)
+# Pandoc's rules: no space inside either delimiter, no digit right after the closing one,
+# so "costs $5 and $10" stays prose.
+INLINE = re.compile(r"(?<![\\$])\$(?![\s$])((?:\\.|[^$\n])+?)(?<![\s\\])\$(?!\d)")
+# Environments that are display math on their own; anything else gets wrapped in \[ \].
+DISPLAY_ENVS = {f"{env}{star}" for env in ("align", "alignat", "equation", "flalign", "gather", "multline")
+                for star in ("", "*")}
+
+PREAMBLE = "\n".join([
+    r"\documentclass[varwidth=true,border=2pt,multi=mathpage]{standalone}",
+    r"\usepackage{amsmath,amssymb,bm,xcolor}",
+    r"\newenvironment{mathpage}{}{}",
+    r"\begin{document}",
+])
+
+
+@dataclass
+class Prose:
+    text: str
+
+
+@dataclass
+class Code:
+    text: str
+
+
+@dataclass
+class Block:
+    latex: str
+    line: int  # 1-based line in the source where the block starts
+
+
+Segment = Prose | Code | Block
+
+
+def parse(text: str) -> list[Segment]:
+    segments: list[Segment] = []
+    prose: list[str] = []
+    prose_start = 1
+    fence: str | None = None
+    code: list[str] = []
+    for number, line in enumerate(text.splitlines(keepends=True), start=1):
+        opener = FENCE.match(line)
+        if fence is None and opener:
+            segments += _split_display("".join(prose), prose_start)
+            prose, fence, code = [], opener.group(1), [line]
+        elif fence is not None:
+            code.append(line)
+            if opener and opener.group(1)[0] == fence[0] and len(opener.group(1)) >= len(fence):
+                segments.append(Code("".join(code)))
+                fence, prose_start = None, number + 1
+        else:
+            prose.append(line)
+    if fence is not None:  # unclosed fence runs to the end, as in CommonMark
+        segments.append(Code("".join(code)))
+    segments += _split_display("".join(prose), prose_start)
+    return [s for s in segments if not (isinstance(s, Prose) and not s.text)]
+
+
+def _split_display(text: str, start_line: int) -> list[Segment]:
+    code_spans = [m.span() for m in CODE_SPAN.finditer(text)]
+    segments: list[Segment] = []
+    pos = cut = 0
+    while match := DISPLAY.search(text, pos):
+        inside = next((end for start, end in code_spans if start <= match.start() < end), None)
+        if inside is not None:
+            pos = inside
+            continue
+        segments.append(Prose(text[cut:match.start()]))
+        segments.append(Block((match.group(1) or match.group(2)).strip(),
+                              start_line + text.count("\n", 0, match.start())))
+        pos = cut = match.end()
+    segments.append(Prose(text[cut:]))
+    return segments
+
+
+def to_unicode(latex: str) -> str:
+    return " ".join(LatexNodes2Text().latex_to_text(latex).split())
+
+
+def inline_to_unicode(prose: str) -> str:
+    def convert(text: str) -> str:
+        return INLINE.sub(lambda m: to_unicode(m.group(1)), text)
+
+    out, cut = [], 0
+    for span in CODE_SPAN.finditer(prose):
+        out += [convert(prose[cut:span.start()]), span.group(0)]
+        cut = span.end()
+    out.append(convert(prose[cut:]))
+    return "".join(out)
+
+
+# --- rendering: tectonic -> PDF (one page per block) -> transparent PNGs --------------------
+
+
+def _page(latex: str) -> str:
+    env = re.match(r"\s*\\begin\{([^}]+)\}", latex)
+    body = latex if env and env.group(1) in DISPLAY_ENVS else rf"\[ {latex} \]"
+    return rf"\begin{{mathpage}}{body}\end{{mathpage}}"
+
+
+def _document(latexes: list[str]) -> str:
+    pages = "\n".join(_page(latex) for latex in latexes)
+    return f"{PREAMBLE}\n{pages}\n\\end{{document}}\n"
+
+
+def png_path(latex: str, dpi: int) -> Path:
+    """Cached render of one block: black ink on transparent, so only its alpha matters."""
+    key = hashlib.sha256(f"{_document([latex])}\0{dpi}".encode()).hexdigest()
+    return CACHE / f"{key}.png"
+
+
+def _tex_errors(log: str) -> str:
+    lines = log.splitlines()
+    picked = [line for k, line in enumerate(lines)
+              if line.startswith(("error:", "! ")) or (k and lines[k - 1].startswith("! "))]
+    return "\n".join(picked) or log.strip()
+
+
+def _compile(latexes: list[str], dests: list[Path], dpi: int) -> str | None:
+    """Compile blocks into dests; return tectonic's errors, or None on success."""
+    with tempfile.TemporaryDirectory(prefix="mdmath-") as tmp:
+        work = Path(tmp)
+        (work / "doc.tex").write_text(_document(latexes))
+        result = subprocess.run(["tectonic", "-X", "compile", "--untrusted", "doc.tex"],
+                                cwd=work, capture_output=True, text=True)
+        if result.returncode != 0:
+            return _tex_errors(result.stdout + result.stderr)
+        subprocess.run(["pdftocairo", "-png", "-transp", "-r", str(dpi), "doc.pdf", "page"],
+                       cwd=work, check=True)
+        pages = sorted(work.glob("page-*.png"), key=lambda p: int(p.stem.rsplit("-", 1)[1]))
+        assert len(pages) == len(dests), f"{len(pages)} pages for {len(dests)} blocks"
+        CACHE.mkdir(parents=True, exist_ok=True)
+        for page, dest in zip(pages, dests):
+            _trim(page).save(work / "trimmed.png")
+            os.replace(work / "trimmed.png", dest)
+    return None
+
+
+def _trim(page: Path, pad: int = 4) -> Image.Image:
+    """Crop to the ink; the varwidth box of align-like environments spans the full line."""
+    image = Image.open(page).convert("RGBA")
+    bbox = image.getchannel("A").getbbox()
+    assert bbox, f"{page} is empty"
+    ink = image.crop(bbox)
+    out = Image.new("RGBA", (ink.width + 2 * pad, ink.height + 2 * pad))
+    out.paste(ink, (pad, pad))
+    return out
+
+
+def render(blocks: list[Block], dpi: int) -> dict[int, str]:
+    """Make sure every block has a cached PNG; return {block index: error} for the failures."""
+    todo = [k for k, block in enumerate(blocks) if not png_path(block.latex, dpi).exists()]
+    if not todo:
+        return {}
+    latexes = [blocks[k].latex for k in todo]
+    if _compile(latexes, [png_path(latex, dpi) for latex in latexes], dpi) is None:
+        return {}
+    # The batch failed: compile one at a time to find the blocks that break it.
+    errors = {}
+    for k in todo:
+        error = _compile([blocks[k].latex], [png_path(blocks[k].latex, dpi)], dpi)
+        if error is not None:
+            errors[k] = error
+    return errors
+
+
+# --- terminal output: kitty Unicode placeholders ---------------------------------------------
+
+
+def _diacritics() -> list[str]:
+    return [chr(int(line.split(";")[0], 16)) for line in DIACRITICS_FILE.read_text().splitlines()
+            if line.strip() and not line.startswith("#")]
+
+
+RGB = tuple[int, int, int]
+
+# Body text colour of glow's light and dark styles (xterm-256 234 and 252), so math matches prose.
+GLOW_TEXT: dict[bool, RGB] = {True: (0x1C, 0x1C, 0x1C), False: (0xD0, 0xD0, 0xD0)}
+
+
+def is_light(fd: int) -> bool:
+    """Whether the terminal background is light, asked with OSC 11 (tmux answers for its panes).
+
+    A fixed ink colour vanishes on one theme or the other. DA1 goes last because every
+    terminal answers it, so it marks the end of the reply.
+    """
+    saved = termios.tcgetattr(fd)
+    tty.setraw(fd)
+    try:
+        os.write(fd, b"\x1b]11;?\x1b\\\x1b[c")
+        reply = b""
+        while not re.search(rb"\x1b\[\?[\d;]*c", reply):
+            assert select.select([fd], [], [], 2)[0], f"no answer to the background query (got {reply!r})"
+            reply += os.read(fd, 1024)
+    finally:
+        termios.tcsetattr(fd, termios.TCSADRAIN, saved)
+    bg = re.search(rb"\]11;rgb:([0-9a-fA-F]+)/([0-9a-fA-F]+)/([0-9a-fA-F]+)", reply)
+    assert bg, f"unexpected background reply {reply!r}"
+    return sum(int(channel[:2], 16) for channel in bg.groups()) > 3 * 127
+
+
+def _tinted(png: Path, fg: RGB) -> bytes:
+    with Image.open(png) as ink:
+        alpha = ink.getchannel("A")
+    image = Image.new("RGBA", alpha.size, fg)
+    image.putalpha(alpha)
+    buffer = io.BytesIO()
+    image.save(buffer, "PNG")
+    return buffer.getvalue()
+
+
+def _image_id(png: Path, fg: RGB) -> int:
+    """24-bit id from formula and colour, so re-sending the same image just replaces it."""
+    return int(hashlib.sha256(f"{png.stem}{fg}".encode()).hexdigest()[:6], 16) or 1
+
+
+def _grid_size(png: Path, cell: tuple[int, int], scale: float, dpi: int, max_cols: int) -> tuple[int, int]:
+    with Image.open(png) as image:
+        width, height = image.size
+    # 10pt TeX text sits on a 12pt line; make that line `scale` cells tall.
+    ratio = cell[1] / (12 / 72 * dpi) * scale
+    cols, rows = width * ratio / cell[0], height * ratio / cell[1]
+    if cols > max_cols:
+        cols, rows = max_cols, rows * max_cols / cols
+    return math.ceil(cols), math.ceil(rows)
+
+
+def _transmit(png: bytes, image_id: int, cols: int, rows: int, tmux: bool) -> bytes:
+    payload = base64.standard_b64encode(png).decode()
+    chunks = [payload[i:i + 4096] for i in range(0, len(payload), 4096)]
+    out = []
+    for k, chunk in enumerate(chunks):
+        more = int(k < len(chunks) - 1)
+        keys = f"a=T,U=1,f=100,i={image_id},c={cols},r={rows},q=2,m={more}" if k == 0 else f"m={more}"
+        seq = f"\x1b_G{keys};{chunk}\x1b\\"
+        out.append("\x1bPtmux;" + seq.replace("\x1b", "\x1b\x1b") + "\x1b\\" if tmux else seq)
+    return "".join(out).encode()
+
+
+def _grid(image_id: int, cols: int, rows: int, diacritics: list[str]) -> list[str]:
+    assert rows <= len(diacritics) and cols <= len(diacritics), f"{cols}x{rows} image is too big"
+    fg = f"\x1b[38;2;{image_id >> 16 & 255};{image_id >> 8 & 255};{image_id & 255}m"
+    return [fg + "".join(PLACEHOLDER + diacritics[y] + diacritics[x] for x in range(cols)) + "\x1b[39m"
+            for y in range(rows)]
+
+
+def _terminal() -> tuple[int, tuple[int, int]]:
+    """(columns, (cell width, cell height) in pixels) of the terminal this process draws on."""
+    with open("/dev/tty", "rb") as terminal:
+        rows, cols, xpixel, ypixel = struct.unpack("HHHH", fcntl.ioctl(terminal.fileno(), termios.TIOCGWINSZ, b"\0" * 8))
+    assert xpixel and ypixel, "the terminal reports no pixel size; kitty images need one"
+    return cols, (xpixel // cols, ypixel // rows)
+
+
+def _glow(markdown: str, width: int, light: bool) -> str:
+    style = "light" if light else "dark"
+    result = subprocess.run(["glow", "-s", style, "-w", str(width), "-"], input=markdown,
+                            capture_output=True, text=True, check=True)
+    return result.stdout
+
+
+def to_terminal(segments: list[Segment], fg: RGB | None, dpi: int, scale: float) -> str:
+    columns, cell = _terminal()
+    blocks = [s for s in segments if isinstance(s, Block)]
+    tmux = bool(os.environ.get("TMUX"))
+    diacritics = _diacritics()
+    grids = {}
+    if tmux:
+        # With allow-passthrough "on", tmux 3.4 silently drops passthrough from a pane that is
+        # waiting for a redraw (screen_write_set_client_cb), which a busy window over SSH often
+        # is. "all" skips that check. Set on this pane only.
+        subprocess.run(["tmux", "set-option", "-p", "-t", os.environ["TMUX_PANE"], "allow-passthrough", "all"],
+                       check=True)
+    fd = os.open("/dev/tty", os.O_RDWR)
+    try:
+        light = is_light(fd)
+        ink = fg or GLOW_TEXT[light]
+        for k, block in enumerate(blocks):
+            png = png_path(block.latex, dpi)
+            if not png.exists():
+                continue
+            image_id = _image_id(png, ink)
+            cols, rows = _grid_size(png, cell, scale, dpi, columns - 4)
+            os.write(fd, _transmit(_tinted(png, ink), image_id, cols, rows, tmux))
+            grids[k] = (cols, _grid(image_id, cols, rows, diacritics))
+    finally:
+        os.close(fd)
+    markdown = _markdown(segments, lambda k, block: f"\n\nMDMATHBLOCK{k}\n\n" if k in grids
+                         else f"\n```latex\n{block.latex}\n```\n")
+    lines = []
+    for line in _glow(markdown, columns, light).splitlines():
+        sentinel = re.search(r"MDMATHBLOCK(\d+)", line)
+        if sentinel is None:
+            lines.append(line)
+            continue
+        cols, grid = grids[int(sentinel.group(1))]
+        lines += [" " * max(0, (columns - cols) // 2) + row for row in grid]
+    return "\n".join(lines) + "\n"
+
+
+def _markdown(segments: list[Segment], block_text) -> str:
+    out = []
+    k = 0
+    for segment in segments:
+        if isinstance(segment, Prose):
+            out.append(inline_to_unicode(segment.text))
+        elif isinstance(segment, Code):
+            out.append(segment.text)
+        else:
+            out.append(block_text(k, segment))
+            k += 1
+    return "".join(out)
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("file", type=Path)
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument("--check", action="store_true", help="compile only; exit 1 if a block fails")
+    mode.add_argument("--unicode", action="store_true", help="all math as Unicode, no images")
+    mode.add_argument("--dry-run", action="store_true", help="print the parsed segments as JSON")
+    parser.add_argument("--fg", type=lambda hex_rgb: tuple(bytes.fromhex(hex_rgb)),
+                        help="math colour as hex RGB (default: glow's body text colour)")
+    parser.add_argument("--dpi", type=int, default=300, help="PNG resolution")
+    parser.add_argument("--scale", type=float, default=1.3, help="math line height, in terminal rows")
+    args = parser.parse_args()
+
+    segments = parse(args.file.read_text())
+    if args.dry_run:
+        print(json.dumps([{"kind": type(s).__name__, **asdict(s)} for s in segments], indent=1))
+        return 0
+    if args.unicode:
+        sys.stdout.write(_markdown(segments, lambda k, block: f"\n\n    {to_unicode(block.latex)}\n\n"))
+        return 0
+
+    assert shutil.which("tectonic"), "tectonic is not on PATH"
+    blocks = [s for s in segments if isinstance(s, Block)]
+    errors = render(blocks, args.dpi)
+    for k, error in errors.items():
+        print(f"{args.file}:{blocks[k].line}: block {k} failed:\n{error}\n", file=sys.stderr)
+    if args.check:
+        print(f"{len(blocks) - len(errors)}/{len(blocks)} blocks compiled", file=sys.stderr)
+        return int(bool(errors))
+    sys.stdout.write(to_terminal(segments, args.fg, args.dpi, args.scale))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
