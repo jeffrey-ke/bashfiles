@@ -171,6 +171,14 @@ When a plan is added, copied, moved, renamed, or deleted:
    (`git log --diff-filter=A --follow --format=%as -- <path> | tail -1`; an uncommitted
    plan uses today's date). Re-sort most-recent first.
 
+## Design docs
+
+`nvim/.docs_claude/design/annotations.md` is the reference for the annotation system
+(`nvim/lua/custom/{versions,hi_store,haunt_anchor,anchor}.lua`): program model, data model,
+the Neovim/xdiff/haunt/vim-highlighter facts it depends on (each marked measured or read),
+and invariants I1–I7. Read it before touching those modules; the plans that produced them are
+in `PLANS_TOC.md`.
+
 ## Notes
 
 `.docs_claude/notes/` holds findings that aren't a plan for a change — root causes,
