@@ -34,6 +34,7 @@ When a plan is added, copied, moved, renamed, or deleted:
 
 ## Chronological index
 
+- **2026-09-29** — [annotations-diff-mapped-versions.md](../nvim/.docs_claude/plans/completed/annotations-diff-mapped-versions.md) `nvim/lua/custom/versions.lua`, `nvim/lua/custom/hi_store.lua`, `nvim/lua/custom/haunt_anchor.lua`
 - **2026-09-28** — [annotations-survive-checkouts.md](../nvim/.docs_claude/plans/completed/annotations-survive-checkouts.md) `nvim/lua/custom/anchor.lua`, `nvim/lua/custom/haunt_anchor.lua`, `nvim/lua/custom/hi_store.lua`, `nvim/lua/custom/annot.lua`
 - **2026-08-26** — [claude-conversation-keep-and-resume.md](plans/completed/claude-conversation-keep-and-resume.md) `bin/ccpaths`, `bin/ccstash`, `bin/ccsave`, `bin/ccresume`, `bin/ccfind`, `.tmux.conf`
 - **2026-08-19** — [dir-aliases-every-nav-entry-point.md](plans/completed/dir-aliases-every-nav-entry-point.md) `.bash_tools`
@@ -69,6 +70,28 @@ When a plan is added, copied, moved, renamed, or deleted:
 ---
 
 ## 1. Nvim: Editing, Git & Highlighting
+
+### [annotations-diff-mapped-versions.md](../nvim/.docs_claude/plans/completed/annotations-diff-mapped-versions.md)
+`~/dotfiles/nvim/lua/custom/{versions,hi_store,haunt_anchor,anchor}.lua` · 2026-09-29
+> Follow-up to the checkout-survival plan below. Content matching treated an *edited* line
+> as a different line — edit `vim.opt.number` → `vim.op.number`, check out upstream's
+> `vim.o.number`, and the note went ⚠. Replaced by the review-tool model: keep one snapshot
+> of the file text the positions are exact for, and when the buffer comes back different,
+> push every position through the xdiff hunks between the two (`vim.diff`, git's engine, with
+> whitespace ignored and `linematch` so one-line rewrites map 1:1), then re-base the snapshot.
+> Text lookup survives only as the fallback for a deleted line (parked with ⚠, resurrected
+> when the text returns) and for pre-snapshot stores. Verified on kickstart.nvim across 19
+> months of upstream churn: the edited line landed on its replacement, and the round trip
+> back was lossless to the column. Two nvim facts measured on the way: at `BufReadPre` the
+> buffer is already empty (only frozen extmarks remain), and at `BufReadPost` `changedtick`
+> still holds the pre-reload value.
+>
+> **Key changes:**
+> - `+ lua/custom/versions.lua` — file keys, snapshots, `mapper(old,new)` (line + column), `ensure_mapped`/`persist`/`remap`, and the `BufReadPre`/`BufReadPost`/write/leave autocmds for both plugins
+> - `~ lua/custom/hi_store.lua` — `load(bufnr, lines, mapper)` / `write(bufnr)`; stale records keep their original anchors and columns; keys via `versions.file_key`
+> - `~ lua/custom/haunt_anchor.lua` — `reanchor(bufnr, lines, mapper)`; `stale` persisted; `on_post_save` → `versions.persist`; stale report keyed by mapping generation
+> - `~ lua/custom/anchor.lua` — now the deleted-line fallback only
+> - `+ tests/versions_spec.lua` — 33 headless checks pinning xdiff/linematch conventions
 
 ### [annotations-survive-checkouts.md](../nvim/.docs_claude/plans/completed/annotations-survive-checkouts.md)
 `~/dotfiles/nvim/lua/custom/{anchor,haunt_anchor,hi_store,annot}.lua`, `nvim/lua/custom/plugins/{haunt,highlighter}.lua` · 2026-09-28
