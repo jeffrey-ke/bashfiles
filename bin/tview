@@ -1,28 +1,61 @@
 #!/usr/bin/env bash
 # tview -- show text, or a command's output, in a tmux split or popup, paged with less.
 #
-#   tview split [--name N] [-v] [-l SIZE] [--focus] [FILE | -- CMD...]
+#   tview split [--name N] [-v] [-l SIZE] [--focus] [--rerender] [FILE | -- CMD...]
 #   tview popup [-w W] [-h H] [FILE | -- CMD...]
 #
 # With neither FILE nor CMD it pages stdin, saved first under ~/.cache/tview/<name>/.
 # CMD runs inside the new pane or popup, so it sees that terminal's size and tty, which
 # renderers like mdmath need. `split --name N` reuses the pane already tagged N in this
-# window, respawning it with the new content, instead of opening another.
+# window, respawning it with the new content, instead of opening another. `--rerender`
+# re-runs CMD whenever the pane is resized, for renderers that lay out to the pane width;
+# the pager reopens at the top.
 set -euo pipefail
 
 die() { echo "tview: $*" >&2; exit 1; }
+
+# Internal: `tview _rerender OUTFILE CMD...` is what --rerender runs inside the pane. Its
+# less flags mirror $pager below.
+if [[ ${1:-} == _rerender ]]; then
+	out=$2
+	shift 2
+	resized=0
+	trap 'resized=1' WINCH
+	while :; do
+		"$@" >"$out" 2>&1 || true
+		# Backgrounded so the WINCH trap can interrupt `wait`; bash defers traps while a
+		# foreground child runs.
+		less -R -+F -- "$out" </dev/tty &
+		pid=$!
+		until ((resized)) || ! kill -0 "$pid" 2>/dev/null; do
+			wait "$pid" || true
+		done
+		((resized)) || exit 0
+		# Debounce: a border drag sends a burst of WINCHes; render once it settles.
+		while ((resized)); do
+			resized=0
+			sleep 0.3
+		done
+		kill "$pid" 2>/dev/null || true
+		wait "$pid" || true
+		# less was killed mid-screen: restore the tty modes and leave its alternate screen.
+		stty sane
+		tput rmcup || true
+	done
+fi
 
 mode=${1:-}
 [[ $mode == split || $mode == popup ]] || die "usage: tview split|popup [options] [FILE | -- CMD...]"
 shift
 
-name=view vertical=0 size=45% focus=0 width=80% height=80%
+name=view vertical=0 size=45% focus=0 width=80% height=80% rerender=0
 while (($#)); do
 	case $1 in
 	--name) name=$2; shift 2 ;;
 	-v) vertical=1; shift ;;
 	-l) size=$2; shift 2 ;;
 	--focus) focus=1; shift ;;
+	--rerender) rerender=1; shift ;;
 	-w) width=$2; shift 2 ;;
 	-h) height=$2; shift 2 ;;
 	--) shift; break ;;
@@ -40,6 +73,10 @@ mkdir -p "$dir"
 file="$dir/$(date +%Y%m%d-%H%M%S-%N).txt"
 if [[ ${1:-} && -f $1 && $# -eq 1 ]]; then
 	cmd="exec $pager -- $(printf '%q' "$(realpath "$1")")"
+elif ((rerender)); then
+	(($#)) || die "--rerender needs a CMD"
+	[[ $mode == split ]] || die "--rerender only works with split"
+	cmd="exec $(printf '%q' "$(realpath "${BASH_SOURCE[0]}")") _rerender $(printf '%q' "$file") $(printf '%q ' "$@")"
 elif (($#)); then
 	# CMD finishes before less starts: a renderer querying the terminal would otherwise race
 	# less for the replies on the tty.

@@ -34,12 +34,13 @@ Rendering is local (tectonic) and cached, so re-runs are fast.
 ## 3. Open it beside the chat
 
 ```bash
-tview split --name math -- mdmath <file>
+tview split --name math --rerender -- mdmath <file>
 ```
 
 This reuses the `math` pane if one is already open, and keeps focus on the chat. The pane
 pages the result in `less`, where `q` closes it. Equations are kitty images drawn with Unicode
-placeholders, so they scroll, search and resize with the text.
+placeholders, so they scroll and search with the text. mdmath lays out to the pane width at
+render time; `--rerender` re-runs it when the pane is resized, reopening at the top.
 
 ## 4. Reply in chat
 
@@ -54,4 +55,8 @@ say the full derivation is in the math pane. Don't paste the LaTeX into chat.
 - **Existing markdown** (e.g. explain-math's output): open it with step 3 directly.
 - **Images missing after a terminal restart or reattach:** Ghostty drops them. Re-run step 3
   to send them again.
+- **Equations cropped on the right/bottom, or shrunk and left-aligned:** Ghostty 1.3.1 draws
+  an image with the first placement ever sent for its id. mdmath deletes an id's placements
+  before re-sending it; if this shows up anyway, check that the delete in `_transmit` is still
+  there. Ghostty versions after 1.3.1 replace placements themselves.
 - **Not inside tmux:** `tview` exits 1. Answer in chat instead.

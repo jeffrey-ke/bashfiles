@@ -59,7 +59,9 @@ DISPLAY_ENVS = {f"{env}{star}" for env in ("align", "alignat", "equation", "flal
                 for star in ("", "*")}
 
 PREAMBLE = "\n".join([
-    r"\documentclass[varwidth=true,border=2pt,multi=mathpage]{standalone}",
+    # varwidth=true caps a page at \linewidth (345pt) and clips anything wider, e.g. a wide
+    # array; a huge cap lets it grow, and _trim crops the page back to the ink.
+    r"\documentclass[varwidth=100cm,border=2pt,multi=mathpage]{standalone}",
     r"\usepackage{amsmath,amssymb,bm,xcolor}",
     r"\newenvironment{mathpage}{}{}",
     r"\begin{document}",
@@ -281,13 +283,17 @@ def _grid_size(png: Path, cell: tuple[int, int], scale: float, dpi: int, max_col
 def _transmit(png: bytes, image_id: int, cols: int, rows: int, tmux: bool) -> bytes:
     payload = base64.standard_b64encode(png).decode()
     chunks = [payload[i:i + 4096] for i in range(0, len(payload), 4096)]
-    out = []
+    # Ghostty 1.3.1 keeps every virtual placement ever made for an image id and draws the grid
+    # with the first one (graphics_unicode.zig), so a re-send at a new size crops or shrinks the
+    # image. Delete the id's placements first; Ghostty main replaces them on retransmit itself.
+    seqs = [f"\x1b_Ga=d,d=I,i={image_id},q=2\x1b\\"]
     for k, chunk in enumerate(chunks):
         more = int(k < len(chunks) - 1)
         keys = f"a=T,U=1,f=100,i={image_id},c={cols},r={rows},q=2,m={more}" if k == 0 else f"m={more}"
-        seq = f"\x1b_G{keys};{chunk}\x1b\\"
-        out.append("\x1bPtmux;" + seq.replace("\x1b", "\x1b\x1b") + "\x1b\\" if tmux else seq)
-    return "".join(out).encode()
+        seqs.append(f"\x1b_G{keys};{chunk}\x1b\\")
+    if tmux:
+        seqs = ["\x1bPtmux;" + seq.replace("\x1b", "\x1b\x1b") + "\x1b\\" for seq in seqs]
+    return "".join(seqs).encode()
 
 
 def _grid(image_id: int, cols: int, rows: int, diacritics: list[str]) -> list[str]:
