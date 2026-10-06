@@ -33,6 +33,8 @@
 	cdiff = "!f() { [ $# -ge 2 ] || { echo 'usage: git cdiff <ref> <ref> [pathspec...]' >&2; exit 1; }; a=$1; b=$2; shift 2; git difftool -y \"$a\" \"$b\" -- '*.py' '*.cc' '*.h' \"$@\"; }; f"
 	fonly ="!f() { [ $# -eq 1 ] || { echo 'usage: git fonly <branch>' >&2; exit 1; }; git fetch origin \"$1\"; }; f"
 	bfdiff = "!f() { base=$(git merge-base --fork-point \"${1:-origin/develop}\" HEAD) || exit 1; git diff --name-only \"$base\" HEAD; }; f"
+	# --git-common-dir, not .git/: in a worktree .git is a file
+	exclude = "!f() { [ $# -ge 1 ] || { echo 'usage: git exclude <pattern>...' >&2; exit 1; }; printf '%s\\n' \"$@\" >> \"$(git rev-parse --git-common-dir)/info/exclude\"; }; f"
 	rename = branch -m
 	rmrem = push origin --delete
 	# not `rm`: git silently ignores an alias that shadows a builtin
@@ -40,6 +42,9 @@
 	com = commit
 	ce = commit --amend --no-edit
 	cw = commit --amend
+	rb = rebase
+	unstage = restore --staged
+	dt = difftool
 [mergetool]
 	prompt = false
 [core]
