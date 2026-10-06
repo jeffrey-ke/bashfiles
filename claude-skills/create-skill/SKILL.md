@@ -1,68 +1,53 @@
 ---
 name: create-skill
-description: Create a new reusable Claude Code skill and register it for auto-discovery. Use when the user asks to save a technique, pattern, or workflow as a skill.
+description: Creates or updates a Claude Code skill per Nuro's skill guide. Use when saving a technique, pattern, or workflow as a skill.
 argument-hint: <skill-name> [description of what the skill should capture]
+allowed-tools: Bash(cat ~/.claude/plugins/marketplaces/nurons-marketplace/docs/skill-guide.md), Bash(~/dotfiles/sync-skills.sh)
 ---
 
 # Create a Claude Code Skill
 
-## Skill Discovery
+Nuro's skill guide is the rulebook: frontmatter, description limit, layout,
+`allowed-tools`, common mistakes, checklist. Follow it; don't restate it in the skill.
 
-Claude Code discovers skills from these locations (no symlinks needed):
+!`cat ~/.claude/plugins/marketplaces/nurons-marketplace/docs/skill-guide.md`
 
-| Location | Path | Scope |
-|----------|------|-------|
-| **Personal** | `~/.claude/skills/<skill-name>/SKILL.md` | All projects |
-| **Project** | `.claude/skills/<skill-name>/SKILL.md` | Current project only |
+## Step 1 — Ask where it belongs
 
-The user's personal skills are also stored in `~/dotfiles/claude-skills/` for version control.
+Ask before writing anything, together with any other design questions:
 
-## Process
+| Home | When | Path |
+|---|---|---|
+| Dotfiles | personal, cross-repo, synced across machines | `~/dotfiles/claude-skills/<name>/` |
+| Monorepo | helps understand or modify Nuro monorepo code | `<area>/.claude/skills/<name>/` per the guide's decision tree |
+| Marketplace | shareable cross-repo tooling or workflow | hand off to `/essentials:creating-plugin` |
 
-1. **Choose a name**: kebab-case, descriptive of the capability (e.g. `visualize-se3-frames`, `fold-knowledge-into-data`)
+## Step 2 — Write it
 
-2. **Create the skill file** with this structure:
+- Name, description, layout, and `allowed-tools` per the guide.
+- `argument-hint` when the skill takes arguments.
+- Lead with steps or a working recipe; imperative voice ("run X", not "you can run X").
+- Scripts are self-contained; reference them by their installed path
+  (`~/.claude/skills/<name>/scripts/...`), never by the dotfiles path.
 
-```markdown
----
-name: <skill-name>
-description: <one-line description of when to use this skill — written for Claude, not humans>
-argument-hint: <what arguments the user might pass>
-allowed-tools: <comma-separated list of tools the skill needs, e.g. Read, Bash(cmd:*)>
----
+## Step 3 — Install (dotfiles)
 
-# <Title>
-
-<Brief explanation of the technique/pattern>
-
-## Core Recipe
-
-<Minimal, copy-paste-ready code or steps that accomplish the task>
-
-## Variations
-
-<Common adaptations, parameter choices, edge cases>
-
-## When Applying This Skill
-
-<Numbered checklist of decisions to make when using it>
-```
-
-3. **Install the skill**:
 ```bash
-mkdir -p ~/dotfiles/claude-skills/<skill-name>
-# Write SKILL.md here
-ln -s ~/dotfiles/claude-skills/<skill-name> ~/.claude/skills/<skill-name>
+~/dotfiles/sync-skills.sh
 ```
-The canonical copy lives in `~/dotfiles/claude-skills/` (version controlled). Symlink it into `~/.claude/skills/` for discovery.
 
-## Skill Writing Guidelines
+It symlinks every `claude-skills/<name>/` into `~/.claude/skills/` and
+`~/.codex/skills/`, skipping ones already linked. Committing to dotfiles needs
+its own confirmation: that checkout usually has unrelated uncommitted work, so
+stage only the skill's directory.
 
-- The **description** field is how Claude decides whether to invoke the skill — make it specific about triggers and use cases
-- The **argument-hint** tells the user what to type after the slash command
-- Lead with a working **core recipe** — minimal code that solves the common case
-- Include **variations** only for genuinely common alternatives, not every possibility
-- Keep it concise: a skill is a recipe card, not a tutorial
-- Code in skills should be self-contained snippets, not imports from the project
-- Write for Claude as the reader: skills guide Claude's code generation, so frame instructions as "do this" not "you can do this"
-- **Set `allowed-tools` in the frontmatter** when a skill needs specific tools without prompting. Use comma-separated tool names with parenthesized patterns for Bash: `allowed-tools: Read, Bash(ls:*), Bash(pyright:*)`. Without this, the user gets prompted for every tool call even if the skill describes which tools are permitted.
+## Step 4 — Verify
+
+Walk the guide's checklist, then load the skill in a fresh session:
+
+```bash
+claude -p '/<name> <a realistic request>' --max-turns 3
+```
+
+For a skill that injects command output at load time, ask the session to echo
+the injected line back to confirm the command ran and its permission is covered.

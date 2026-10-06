@@ -205,4 +205,4 @@ check this directory directly before re-investigating a "why is X slow / broken"
 claude-skills/<skill-name>/SKILL.md
 ```
 
-Follow the frontmatter format documented in `claude-skills/create-skill/SKILL.md`. Register the skill in `.claude/settings.local.json` if it needs special permissions.
+Use `/create-skill`. It follows Nuro's skill guide (frontmatter, layout, `allowed-tools` for permissions) and links the skill in with `./sync-skills.sh`.
