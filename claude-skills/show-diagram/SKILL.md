@@ -1,6 +1,6 @@
 ---
 name: show-diagram
-description: Makes a diagram of whatever is under discussion and opens it in nvim in a new tmux pane beside this one. Use for "diagram this", "show me a graph", "open it here".
+description: Opens an image or plot in a tmux split pane, drawing a diagram first if needed. Use for "show/open in a split", "diagram this".
 allowed-tools: Bash(~/.claude/skills/show-diagram/scripts/open_in_pane.sh *), Bash(~/.claude/skills/charting-code-chains/scripts/render_mermaid.sh *)
 ---
 
