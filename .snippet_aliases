@@ -35,4 +35,8 @@
 
 aevRbf_toggle='enable_aev_intersection_yield'
 features_path='onboard/learned_behavior/features.proto'
-model_ckpts_file='onboard/models/joint_ilp_mh/model_release_metadata.json'
+awr_func='compute_advantage_weight'
+lastbr='@{-1}'
+model_manifest='onboard/models/manifests/joint_ilp_mh/model_manifest.json'
+odev='origin/develop'
+notestspec=':/*.py :/*.cc :/*.h :/!*test*'
