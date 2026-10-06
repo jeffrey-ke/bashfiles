@@ -92,10 +92,18 @@ if command -v fzf >/dev/null 2>&1; then
 	# chain runs in a subshell), so this file is the only channel back out —
 	# it's how the widget learns which directory the final accept happened
 	# in, to rebase the selection onto the origin dir.
+	# Bazel's convenience symlinks point into the whole output base, and the
+	# walker follows symlinks, so they must be skipped. --walker-skip takes
+	# exact names, not globs, and one link is named after the workspace
+	# (bazel-<dirname>), so the names are gathered from $PWD and one level
+	# down (Ctrl-T from a directory holding several repos). Only symlinks
+	# count — a real directory called bazel-foo is still walked.
 	_fzf_ctrl_t_relaunch() {
 		[ -n "${_FZF_CTRL_T_CWDFILE:-}" ] && printf '%s' "$PWD" >"$_FZF_CTRL_T_CWDFILE"
+		local skip=.git,node_modules,bazel-bin,bazel-out,bazel-testlogs p
+		for p in bazel-* */bazel-*; do [ -L "$p" ] && skip+=",${p##*/}"; done
 		FZF_DEFAULT_COMMAND=${FZF_CTRL_T_COMMAND:-} \
-			FZF_DEFAULT_OPTS="--reverse --walker=file,dir,follow,hidden --scheme=path --header=\"$PWD\" ${FZF_CTRL_T_OPTS:-} -m" \
+			FZF_DEFAULT_OPTS="--reverse --walker=file,dir,follow,hidden --walker-skip=$skip --scheme=path --header=\"$PWD\" ${FZF_CTRL_T_OPTS:-} -m" \
 			FZF_DEFAULT_OPTS_FILE='' fzf
 	}
 	export -f _fzf_ctrl_t_relaunch
