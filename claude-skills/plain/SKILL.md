@@ -17,8 +17,15 @@ Keep every fact, number, and citation from the previous message. The only thing
 you may add is why an idea exists, and only when a source earlier in the
 conversation already supports it.
 
+End with a **Back in context** section. Pick the few sentences from your
+previous message that carried its main claims and leaned hardest on jargon,
+usually three to five. Quote each one, then restate it in the plain terms the
+rewrite just introduced. This ties the new explanation back to the wording the
+user already read, so they can see what each original sentence meant.
+
 Worked example, before and after: `references/case-study-goal-conditioning.md`.
-Read it the first time you use this skill in a session.
+Read it the first time you use this skill in a session. The example predates
+the Back in context section, so it doesn't show one.
 
 ## Terms given: explain just those
 
