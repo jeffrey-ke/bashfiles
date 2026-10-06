@@ -82,3 +82,4 @@ alias vd='uv run --with visidata vd'
 alias gsince='git log --graph --oneline --decorate'
 alias sapt='sudo apt install'
 alias rt='reset'
+alias lga="git config --get-regexp '^alias\.' | sed 's/^alias\.//'"
