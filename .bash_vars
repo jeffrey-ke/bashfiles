@@ -8,6 +8,10 @@ set -o vi
 # (it keys on `hostname -s`); an unused variable elsewhere.
 export BASH_SILENCE_DEPRECATION_WARNING=1
 
+# The terminal background is light (#d0d0d0), and gh's markdown renderer
+# can't detect that through tmux, so it falls back to its dark style.
+export GLAMOUR_STYLE=light
+
 # Override Ubuntu's stock ignoreboth: ignorespace silently drops any command
 # from history whose first physical line starts with whitespace, which is
 # an easy accident on multi-line pastes (indented continuation lines, code
