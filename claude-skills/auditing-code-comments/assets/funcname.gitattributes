@@ -1,0 +1,13 @@
+*.py diff=python
+*.pyi diff=python
+*.bzl diff=python
+BUILD diff=python
+*.c diff=cpp
+*.cc diff=cpp
+*.cpp diff=cpp
+*.h diff=cpp
+*.hpp diff=cpp
+*.cu diff=cpp
+*.go diff=golang
+*.rs diff=rust
+*.sh diff=bash
