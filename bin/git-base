@@ -1,0 +1,72 @@
+#!/usr/bin/env bash
+# git-base -- where did my work on a branch start?  Run as `git base`.
+#
+# Usage:
+#   git base [--fork] [<branch>]        (default HEAD)
+#
+# Prints one commit to stdout, the left side for a review diff:
+#   git ndt "$(git base jke/new-rbf)" jke/new-rbf
+# and a report on stderr.
+#
+#   fork base   The first-parent ancestor of <branch> where it leaves every ref
+#               listed in .gitbaserc. A branch built on a release branch gets
+#               the release commit, not its ancient merge-base with develop.
+#   your start  Walking first-parent from <branch> down to the fork base, the
+#               first commit not authored by `git config user.email`. Printed
+#               by default; --fork prints the fork base instead.
+#
+# A squash or rebase can bury your changes in a commit someone else authored,
+# so commits below your start that you committed but did not author are listed
+# as a warning: check them by hand.
+#
+# .gitbaserc: one ERE per line, matched against the short names of local and
+# remote-tracking refs (`origin/prod/20260704`); `#` comments and blank lines
+# are ignored. Read from the worktree's top dir, else the main checkout's, so
+# one file can serve every worktree. Keep it out of git with `git exclude`.
+
+set -euo pipefail
+
+mode=start
+if [ "${1:-}" = --fork ]; then mode=fork; shift; fi
+branch=${1:-HEAD}
+tip=$(git rev-parse --verify "$branch^{commit}")
+me=$(git config user.email)
+
+rc=$(git rev-parse --show-toplevel)/.gitbaserc
+[ -f "$rc" ] || rc=$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")/.gitbaserc
+[ -f "$rc" ] || { echo "git base: no .gitbaserc in the worktree or main checkout top dir" >&2; exit 1; }
+
+mapfile -t refs < <(
+	git for-each-ref --format='%(refname:short)' refs/heads refs/remotes |
+		{ grep -E -f <(grep -Ev '^[[:space:]]*(#|$)' "$rc") || true; }
+)
+[ ${#refs[@]} -gt 0 ] || { echo "git base: no ref matches a pattern in $rc" >&2; exit 1; }
+
+# One traversal instead of a merge-base per ref: the branch's first-parent
+# commits that no candidate contains. The oldest one's parent is the fork base.
+oldest=$(printf '^%s\n' "${refs[@]}" | git rev-list --first-parent --stdin "$tip" | tail -1)
+if [ -z "$oldest" ]; then
+	fork=$tip
+else
+	fork=$(git rev-parse "$oldest^")
+fi
+fork_name=$(git name-rev --name-only --no-undefined "${refs[@]/#/--refs=}" "$fork" 2>/dev/null || echo '?')
+
+start=$fork
+while read -r sha author; do
+	if [ "$author" != "$me" ]; then start=$sha; break; fi
+done < <(git log --first-parent --format='%H %ae' "$fork..$tip")
+
+short() { git rev-parse --short=12 "$1"; }
+{
+	echo "fork base   $(short "$fork")  $fork_name  ($(git rev-list --count --first-parent "$fork..$tip") commits since)"
+	echo "your start  $(short "$start")  ($(git rev-list --count --first-parent "$start..$tip") commits of yours on top)"
+	buried=$(git log --first-parent --format='%ae %ce %h %an: %s' "$fork..$start" |
+		awk -v me="$me" '$1 != me && $2 == me { $1 = $2 = ""; print "  " substr($0, 3) }')
+	if [ -n "$buried" ]; then
+		echo "warning: committed by you, authored by someone else; may hold your squashed work:"
+		echo "$buried"
+	fi
+} >&2
+
+if [ "$mode" = fork ]; then echo "$fork"; else echo "$start"; fi
