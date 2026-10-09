@@ -31,6 +31,10 @@
 	# Extra args after the two refs are appended as pathspecs, so exclusions
 	# work: git cdiff HEAD^ HEAD ':!*_test.py'
 	cdiff = "!f() { [ $# -ge 2 ] || { echo 'usage: git cdiff <ref> <ref> [pathspec...]' >&2; exit 1; }; a=$1; b=$2; shift 2; git difftool -y \"$a\" \"$b\" -- '*.py' '*.cc' '*.h' \"$@\"; }; f"
+	# fugitive's `:Git difftool -y <args>`: one diff tab per changed file in a
+	# single nvim. Args travel newline-joined in $NDT_ARGS and are fnameescape'd,
+	# so spaces and % survive fugitive's own parsing. Tab 1 is the empty start tab.
+	ndt = "!f() { cd \"${GIT_PREFIX:-.}\" && NDT_ARGS=\"$(printf '%s\\n' \"$@\")\" nvim -c 'lua vim.cmd(\"Git difftool -y \" .. table.concat(vim.tbl_map(vim.fn.fnameescape, vim.split(vim.env.NDT_ARGS, \"\\n\", { trimempty = true })), \" \"))' -c 'if tabpagenr(\"$\") > 1 | 1tabclose | endif'; }; f"
 	fonly ="!f() { [ $# -eq 1 ] || { echo 'usage: git fonly <branch>' >&2; exit 1; }; git fetch origin \"$1\"; }; f"
 	bfdiff = "!f() { base=$(git merge-base --fork-point \"${1:-origin/develop}\" HEAD) || exit 1; git diff --name-only \"$base\" HEAD; }; f"
 	# --git-common-dir, not .git/: in a worktree .git is a file
@@ -45,11 +49,26 @@
 	rb = rebase
 	unstage = restore --staged
 	dt = difftool
+	mytag = !git for-each-ref refs/tags --format='%(taggeremail) %(refname:short)' | grep -F \"<$(git config user.email)>\" | cut -d' ' -f2
+	# Topic labels as git notes on refs/notes/topics, one label per note line.
+	# Bare `git T` prints the cheatsheet; `git T --help`/`-h` can't be hooked
+	# because git answers those on an alias itself.
+	T = "!f() { h='git T <tag> [commit]      add a tag (commit defaults to HEAD; quote multi-word tags)\\ngit Te <commit>           edit the commit'\"'\"'s tags in $EDITOR, one per line\\ngit Trm <commit>          remove all tags from the commit\\ngit Tls                   list tags with commit counts\\ngit Tgrep <tag>           commits with the tag, and the branches holding them\\n'; case $# in 0) printf \"$h\"; exit 0;; 1|2) ;; *) printf \"$h\" >&2; exit 1;; esac; git notes --ref=topics append -m \"$1\" \"${2:-HEAD}\"; }; f"
+	Te = notes --ref=topics edit
+	Trm = notes --ref=topics remove
+	# Tls/Tgrep skip commits on no local branch: rewriteRef copies notes on
+	# rebase/amend but leaves the old commit's note behind. Local branches only
+	# because --contains over the monorepo's remote refs is slow.
+	Tls = "!git notes --ref=topics list | while read -r n c; do [ -n \"$(git for-each-ref --count=1 --contains \"$c\" refs/heads)\" ] && git cat-file -p \"$n\"; done | sed '/^$/d' | sort | uniq -c | sort -rn"
+	Tgrep = "!f() { [ $# -eq 1 ] || { echo 'usage: git Tgrep <tag>' >&2; exit 1; }; git notes --ref=topics list | while read -r n c; do git cat-file -p \"$n\" | grep -Fxq -- \"$1\" || continue; b=$(git for-each-ref --contains \"$c\" --format='%(refname:short)' refs/heads | paste -sd' '); [ -n \"$b\" ] || continue; echo \"$(git log -1 --format='%h %s' \"$c\")  [$b]\"; done; }; f"
 [mergetool]
 	prompt = false
 [core]
 	editor = vim
 	excludesFile = ~/.gitignore_global
+[notes]
+	# Carry topic labels (git T) onto the new commits on rebase/amend.
+	rewriteRef = refs/notes/topics
 # Resolved off PATH, not an absolute path: this file is shared across machines and
 # the old hard-coded /ocean/.../bin/gh exists only on PSC. The PSC machine files
 # put that directory on PATH, so the helper keeps working there.
