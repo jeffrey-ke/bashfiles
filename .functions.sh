@@ -1296,3 +1296,9 @@ z() {
 		_z_timeout "$@"
 	fi
 }
+
+# sparse_worktree, worktree_diff, worktree_apply, ...: draft a change in a throwaway worktree.
+# Lives with the Claude skill that drives it.
+_sw="$HOME/dotfiles/claude-skills/previewing-changes-in-worktrees/scripts/sparse_worktree.sh"
+[ -f "$_sw" ] && source "$_sw"
+unset _sw
