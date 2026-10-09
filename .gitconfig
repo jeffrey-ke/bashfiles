@@ -34,7 +34,9 @@
 	# fugitive's `:Git difftool -y <args>`: one diff tab per changed file in a
 	# single nvim. Args travel newline-joined in $NDT_ARGS and are fnameescape'd,
 	# so spaces and % survive fugitive's own parsing. Tab 1 is the empty start tab.
-	ndt = "!f() { cd \"${GIT_PREFIX:-.}\" && NDT_ARGS=\"$(printf '%s\\n' \"$@\")\" nvim -c 'lua vim.cmd(\"Git difftool -y \" .. table.concat(vim.tbl_map(vim.fn.fnameescape, vim.split(vim.env.NDT_ARGS, \"\\n\", { trimempty = true })), \" \"))' -c 'if tabpagenr(\"$\") > 1 | 1tabclose | endif'; }; f"
+	# Added/deleted files are skipped (fugitive can't diff a missing side) and
+	# listed on the terminal instead, visible again once nvim exits.
+	ndt = "!f() { cd \"${GIT_PREFIX:-.}\" && git --no-pager diff --name-status --diff-filter=AD \"$@\"; NDT_ARGS=\"$(printf '%s\\n' \"$@\")\" nvim -c 'lua vim.cmd(\"Git difftool -y --diff-filter=ad \" .. table.concat(vim.tbl_map(vim.fn.fnameescape, vim.split(vim.env.NDT_ARGS, \"\\n\", { trimempty = true })), \" \"))' -c 'if tabpagenr(\"$\") > 1 | 1tabclose | endif'; }; f"
 	fonly ="!f() { [ $# -eq 1 ] || { echo 'usage: git fonly <branch>' >&2; exit 1; }; git fetch origin \"$1\"; }; f"
 	bfdiff = "!f() { base=$(git merge-base --fork-point \"${1:-origin/develop}\" HEAD) || exit 1; git diff --name-only \"$base\" HEAD; }; f"
 	# --git-common-dir, not .git/: in a worktree .git is a file
