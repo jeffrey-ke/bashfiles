@@ -42,4 +42,5 @@ alias sblog='tail -f ~/.local/share/silverbullet/server.log'
 
 # >>> path registry >>>
 export features_proto='/home/jke/repo/invisible-aev-track_dump/onboard/learned_behavior/features.proto'
+export behavior_mod='/home/jke/repo/xtraffic-mv-rule/onboard/behavior'
 # <<< path registry <<<
