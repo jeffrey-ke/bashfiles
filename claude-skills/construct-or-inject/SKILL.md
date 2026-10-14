@@ -229,6 +229,7 @@ class ResNet(nn.Module):
 - **Constructor over-injection**: runtime data (a batch, a request) in a constructor. Move to the method.
 - **Newable holding an injectable**: a value object with a service reference — untestable without the service graph.
 - **Pre-emptive injection**: injecting `nn.LayerNorm`, the FFN, every projection "for flexibility" nobody asked for. Indirection has a cost; you can no longer see what the object is made of. Construct the definitional parts; punch a defaulted factory hole *when* a variation point is discovered, not before.
+- **Prologue collaborator**: a function takes a collaborator only to compute its real inputs before its work starts. Narrowing the signature seems to push that computation into the caller; it doesn't have to. Worked example: `references/case-study-prologue-collaborators.md`.
 
 ## The Time Dimension
 
