@@ -1319,6 +1319,184 @@ z() {
 	fi
 }
 
+_mg_usage() {
+	cat >&2 <<-'EOF'
+		Usage: mg [-M MAX] [-H HIGH] <name> <command> [args...]
+		       mg -h | --help
+
+		Run <command> in its own group under <name>.slice, so a memory cap on the
+		slice bounds the command and everything it forks, daemons included.
+		Background and traps: ~/dotfiles/docs/mg/README.md
+
+		  mg bazel bazel build //x       run inside bazel.slice, under whatever cap it has
+		  mg -M 40G bazel bazel build    cap bazel.slice at 40G first (swap off for it)
+		  mg -M 8G nb jupyter lab        any name; the slice is made on first use
+
+		  -M MAX    hard cap on everything in the slice combined; past it the
+		            kernel OOM-kills a process *inside* the slice, nothing else
+		  -H HIGH   soft cap: past it the slice is throttled and reclaimed first
+
+		A dash in <name> nests: bazel-x runs under bazel.slice and counts against
+		its cap. <command> must be a program, not a shell function or alias.
+		mgls shows what is in each slice; systemctl --user stop <name>.slice ends one.
+	EOF
+}
+
+# Run a command in its own leaf group (a scope) under <name>.slice, so a cap on
+# the slice bounds the command and everything it ever forks -- daemons included.
+# That is the point for bazel: its server detaches from the terminal (new
+# session, new pgid) but cannot leave the cgroup it was started in, and the
+# compiles are the server's children, not the client's.
+#
+# Caps are set --runtime and re-asserted on each call that passes them, so
+# nothing piles up in ~/.config/systemd and a reboot leaves no stale cap behind.
+mg() {
+	if [[ $1 == --help ]]; then
+		_mg_usage
+		return 0
+	fi
+	local max="" high="" OPTIND opt
+	while getopts 'M:H:h' opt; do
+		case $opt in
+		M) max=$OPTARG ;;
+		H) high=$OPTARG ;;
+		h)
+			_mg_usage
+			return 0
+			;;
+		*)
+			_mg_usage
+			return 1
+			;;
+		esac
+	done
+	shift $((OPTIND - 1))
+	if (($# < 2)); then
+		_mg_usage
+		return 1
+	fi
+	local slice="${1%.slice}.slice"
+	shift
+
+	# `command` so that mg bazel bazel ... from inside the bazel() wrapper below
+	# reaches the binary rather than recursing into the wrapper.
+	if ! _z_have_scope; then
+		echo "mg: no user systemd here -- running '$1' without a $slice cap" >&2
+		command "$@"
+		return
+	fi
+
+	local props=()
+	[[ -n $max ]] && props+=(MemoryMax="$max" MemorySwapMax=0)
+	[[ -n $high ]] && props+=(MemoryHigh="$high")
+	if ((${#props[@]})); then
+		systemctl --user set-property --runtime "$slice" "${props[@]}" || return
+	fi
+	# OOMPolicy=continue: a scope's default is to stop the whole scope after
+	# any OOM kill, which turns one oversized compile into a dead bazel server
+	# and a cold cache. With it only the kernel's own victim dies.
+	systemd-run --user --scope --quiet --collect --slice="$slice" \
+		--property=OOMPolicy=continue -- "$@"
+}
+
+_mgls_usage() {
+	cat >&2 <<-'EOF'
+		Usage: mgls [-o FIELDS] [-p] [name...]
+
+		  mgls                       every active slice: memory used / cap, then its processes
+		  mgls bazel nb              only these slices
+		  mgls -o pid,etime,args     any ps -o field list (default pid,rss,etime,args)
+		  mgls -p bazel              bare pids, one per line, for xargs/kill
+
+		args is the full command line -- the string pkill -f matches against.
+		A nested slice (bazel-x under bazel) is its own entry, not repeated in its parent.
+	EOF
+}
+
+_mg_bytes() {
+	if [[ $1 =~ ^[0-9]+$ ]]; then numfmt --to=iec "$1"; else echo -; fi
+}
+
+mgls() {
+	local fmt=pid,rss,etime,args pids_only="" OPTIND opt
+	while getopts 'o:ph' opt; do
+		case $opt in
+		o) fmt=$OPTARG ;;
+		p) pids_only=1 ;;
+		h)
+			_mgls_usage
+			return 0
+			;;
+		*)
+			_mgls_usage
+			return 1
+			;;
+		esac
+	done
+	shift $((OPTIND - 1))
+	if ! _z_have_scope; then
+		echo "mgls: no user systemd here, so no slices" >&2
+		return 1
+	fi
+
+	local slices=() n
+	if (($#)); then
+		for n in "$@"; do slices+=("${n%.slice}.slice"); done
+	else
+		mapfile -t slices < <(systemctl --user list-units --type=slice --state=active --plain --no-legend |
+			awk '$1 != "-.slice" { print $1 }')
+	fi
+
+	local s k v cg cur max pids
+	for s in "${slices[@]}"; do
+		cg="" cur="" max=""
+		# Parsed by key, because `show --value` prints in systemd's property order,
+		# not the order the -p list asks for.
+		while IFS='=' read -r k v; do
+			case $k in
+			ControlGroup) cg=$v ;;
+			MemoryCurrent) cur=$v ;;
+			MemoryMax) max=$v ;;
+			esac
+		done < <(systemctl --user show -p ControlGroup,MemoryCurrent,MemoryMax "$s")
+
+		pids=""
+		# Pruning child slices keeps each pid under its nearest slice only; without
+		# it app.slice would repeat everything in app-*.slice.
+		[[ -n $cg && -d /sys/fs/cgroup$cg ]] &&
+			pids=$(find "/sys/fs/cgroup$cg" -mindepth 1 -name '*.slice' -prune -o -name cgroup.procs -print0 |
+				xargs -0r cat | paste -sd,)
+
+		if [[ -n $pids_only ]]; then
+			[[ -n $pids ]] && tr , '\n' <<<"$pids"
+			continue
+		fi
+		if [[ -z $cg ]]; then
+			echo "$s  (not running)"
+			continue
+		fi
+		echo "$s  $(_mg_bytes "$cur") / $(_mg_bytes "$max")"
+		if [[ -n $pids ]]; then
+			# -ww: ps otherwise cuts args at the terminal width, and a cut command
+			# line is useless as a pkill -f pattern.
+			ps -ww -o "$fmt" -p "$pids" | sed 's/^/  /'
+		else
+			echo "  (no processes)"
+		fi
+	done
+}
+
+# 40G of the box's 62G: the 2026-10-16 oomd sweep took GNOME and most panes after
+# an uncapped build filled the machine (docs/mg/README.md). One slice caps every
+# checkout's server combined. Scripts that run bazel themselves (launcher.sh)
+# never see the function below, so start them with `mgbazel <script>` instead.
+mgbazel() { mg -M 40G bazel "$@"; }
+
+# Every interactively typed bazel goes through mgbazel, so whichever call starts
+# a checkout's server puts it -- and every compile it spawns -- in bazel.slice.
+# A server already running outside it is not moved; `bazel shutdown` it once.
+bazel() { mgbazel bazel "$@"; }
+
 # sparse_worktree, worktree_diff, worktree_apply, ...: draft a change in a throwaway worktree.
 # Lives with the Claude skill that drives it.
 _sw="$HOME/dotfiles/claude-skills/previewing-changes-in-worktrees/scripts/sparse_worktree.sh"
