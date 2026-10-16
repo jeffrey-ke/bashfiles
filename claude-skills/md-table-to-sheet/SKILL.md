@@ -19,7 +19,7 @@ destination policy.
 
 **1. Resolve the range to a file and line numbers.**
 
-`<leader>yr` yields `@file#L15-40` (visual) or `@file#L22` (normal, single line). The path
+`<leader>yr` yields `@file#L15-40` (visual, or as an operator over a motion like `<leader>yrip`) or `@file#L22` (`<leader>yrr`, single line). The path
 is `expand('%:.')` — *relative to the nvim cwd*, which for vault work is
 `/home/jke/worklog`. Resolve it there when it does not exist relative to the session cwd.
 
