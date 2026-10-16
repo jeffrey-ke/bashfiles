@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# fsed-cmd -- build a `sed -i` command for FILE in three fzf screens and print it.
+# fsed-cmd -- build a `sed -i` substitute or a `sed -n` print command for FILE in
+# fzf screens and print it.
 #
 # Usage:
 #   fsed-cmd FILE
@@ -16,6 +17,8 @@
 # `,` starts the end of a range. Otherwise the list shows the lines the address
 # selects, as computed by sed itself. Pattern: words from the addressed lines that
 # match what is typed; the preview marks what s/// would hit on each line.
+# ctrl-t there toggles print mode: enter then ends with `sed -n 'ADDR{/PAT/p}'`
+# (an empty pattern prints the whole address) and the replacement screen is skipped.
 # Replacement: the preview is the diff the command would make.
 #
 # Words picked with tab are escaped to match literally; typed text is raw sed BRE,
@@ -74,15 +77,43 @@ pat_list() {
 }
 
 pat_preview() {
-	local file=$1 addr=$2 q=$3 out
+	local file=$1 addr=$2 q=$3 prompt=$4 mark out verb=match
 	if [[ -z $q ]]; then
 		sed -n "${addr}{=;p}" "$file" | paste -d' ' - -
 		return
 	fi
-	out=$(sed -n "${addr}{=;s/${q}/${esc}[1;31m&${esc}[0m/;p}" "$file" 2>&1) || { echo "$out"; return; }
-	echo "$(sed -n "${addr}{/${q}/p}" "$file" | wc -l) lines match"
+	mark="s/${q}/${esc}[1;31m&${esc}[0m/"
+	if [[ $prompt == print* ]]; then
+		out=$(sed -n "${addr}{/${q}/{=;${mark};p}}" "$file" 2>&1) || { echo "$out"; return; }
+		verb=print
+	else
+		out=$(sed -n "${addr}{=;${mark};p}" "$file" 2>&1) || { echo "$out"; return; }
+	fi
+	echo "$(sed -n "${addr}{/${q}/p}" "$file" | wc -l) lines $verb"
 	paste -d' ' - - <<<"$out"
 }
+
+pat_toggle() {
+	if [[ $1 == print* ]]; then
+		echo "change-prompt(pattern> )+refresh-preview"
+	else
+		echo "change-prompt(print pattern> )+refresh-preview"
+	fi
+}
+
+print_script() {
+	local addr=$1 pat=$2
+	if [[ -z $pat ]]; then
+		echo "${addr}p"
+	elif [[ -z $addr ]]; then
+		echo "/${pat}/p"
+	else
+		echo "${addr}{/${pat}/p}"
+	fi
+}
+
+# The final command line: sed FLAG 'SCRIPT' FILE.
+print_cmd() { printf "sed %s '%s' %s\n" "$1" "${2//\'/\'\\\'\'}" "$3"; }
 
 rep_preview() {
 	local file=$1 script=$2 err
@@ -100,7 +131,8 @@ __addr-tab) addr_tab "$2" "$3"; exit ;;
 __addr-preview) addr_preview "$2" "$3" "$4"; exit ;;
 __pat-list) pat_list "$2" "$3" "$4"; exit ;;
 __pat-tab) escape_bre "$2"; exit ;;
-__pat-preview) pat_preview "$2" "$3" "$4"; exit ;;
+__pat-preview) pat_preview "$2" "$3" "$4" "$5"; exit ;;
+__pat-toggle) pat_toggle "$2"; exit ;;
 __rep-preview) rep_preview "$2" "$3"; exit ;;
 esac
 
@@ -118,11 +150,20 @@ addr=$(: | pick --prompt 'address> ' \
 addr=${addr%,}
 
 qaddr=$(printf %q "$addr")
-pat=$(: | pick --prompt 'pattern> ' \
-	--header "sed '${addr:+$addr }s/' -- tab: complete" \
+# \$FZF_PROMPT is expanded by fzf's shell, not here: the prompt is the mode.
+out=$(: | pick --prompt 'pattern> ' \
+	--header "address: ${addr:-(every line)} -- tab: complete, ctrl-t: substitute/print" \
 	--bind "start,change:reload($self __pat-list $qfile $qaddr {q})+first" \
 	--bind "tab:transform-query($self __pat-tab {})" \
-	--preview "$self __pat-preview $qfile $qaddr {q}")
+	--bind "ctrl-t:transform($self __pat-toggle \"\$FZF_PROMPT\")" \
+	--bind "enter:become(printf '%s\t%s\n' \"\$FZF_PROMPT\" {q})" \
+	--preview "$self __pat-preview $qfile $qaddr {q} \"\$FZF_PROMPT\"")
+IFS=$'\t' read -r mode pat <<<"$out"
+
+if [[ $mode == print* ]]; then
+	print_cmd -n "$(print_script "$addr" "$pat")" "$qfile"
+	exit
+fi
 [[ -n $pat ]] || { echo "fsed-cmd: empty pattern" >&2; exit 1; }
 
 script_head="${addr:+$addr }s/$pat/"
@@ -131,5 +172,4 @@ rep=$(: | pick --prompt 'replacement> ' \
 	--preview "$self __rep-preview $qfile $(printf %q "$script_head"){q}/" \
 	--preview-window up,90%)
 
-script="$script_head$rep/"
-printf "sed -i '%s' %s\n" "${script//\'/\'\\\'\'}" "$qfile"
+print_cmd -i "$script_head$rep/" "$qfile"

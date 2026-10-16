@@ -1,9 +1,10 @@
-# fsed — build a `sed -i` edit in fzf
+# fsed — build a `sed -i` edit or a `sed -n` print in fzf
 
-`fsed FILE` walks through three fzf screens, address, search pattern and
-replacement, each with a live preview of what sed will do. The finished command is
-then prefilled on an editable `$ ` prompt: enter runs it and adds it to history,
-ctrl-c drops it.
+`fsed FILE` walks through fzf screens for the address, search pattern and
+replacement, each with a live preview of what sed will do. Ctrl-T on the pattern
+screen switches to print mode, which skips the replacement screen and builds a
+`sed -n` print instead. The finished command is then prefilled on an editable
+`$ ` prompt: enter runs it and adds it to history, ctrl-c drops it.
 
 ```bash
 fsed learning/behavior/models/model_configs/bfm_model.yaml
@@ -11,13 +12,19 @@ fsed learning/behavior/models/model_configs/bfm_model.yaml
 #   pattern>      \(weight:\) .*<enter>          preview: "1 lines match"
 #   replacement>  \1 36.0<enter>                 preview: the diff
 # $ sed -i '/comply_with_siren:/,/weight:/ s/\(weight:\) .*/\1 36.0/' learning/...
+
+fsed r.txt
+#   address>        /START/,/END/<enter>
+#   pattern>        x<ctrl-t>                    prompt becomes "print pattern> "
+#   print pattern>  <enter>                      preview: "2 lines print" + those lines
+# $ sed -n '/START/,/END/{/x/p}' r.txt
 ```
 
 Two pieces:
 
 | Piece | Where | Role |
 |---|---|---|
-| `fsed-cmd FILE` | `bin/fsed-cmd`, symlinked to `~/.local/bin` by `run.sh` | Runs the three screens and prints one `sed -i '…' FILE` line to stdout. Exits non-zero, printing nothing, on esc or an empty pattern |
+| `fsed-cmd FILE` | `bin/fsed-cmd`, symlinked to `~/.local/bin` by `run.sh` | Runs the screens and prints one `sed -i '…' FILE` or `sed -n '…' FILE` line to stdout. Exits non-zero, printing nothing, on esc or an empty substitute pattern |
 | `fsed FILE` | end of `.functions.sh` | Calls `fsed-cmd`, prefills its output with `read -r -e -i`, then `history -s` and `eval` |
 
 The split is forced: a script can't write into its parent shell's history or
@@ -37,16 +44,25 @@ It was built after two sed mistakes in a row on the line above:
 
 Both are "can't see what sed will do" problems. So the design rule is that every
 screen's preview is computed **by sed itself** (or grep in the same BRE dialect),
-never by a reimplementation, and the tool never adds a backup suffix or `-n` to
-the final command.
+never by a reimplementation. The final command never gives `-i` a backup suffix
+and never combines `-i` with `-n`: substitute is `-i` alone, and print is `-n`
+alone (it doesn't change the file).
 
 ## Program model
 
-### The sed command it builds
+### The sed commands it builds
 
 ```
-sed -i '<ADDR> s/<PAT>/<REP>/' FILE
+substitute:  sed -i '<ADDR> s/<PAT>/<REP>/' FILE
+print:       sed -n '<ADDR>{/<PAT>/p}' FILE      empty ADDR → '/<PAT>/p'
+                                                 empty PAT  → '<ADDR>p'
 ```
+
+Screen 2's text is a regex tested against the addressed lines in both modes. Only
+its place in the command changes: the search half of `s` for substitute, or a
+nested address in front of `p` for print. sed allows one address per command, so
+the second condition has to be nested in `{}` (`/a/,/b/ /x/p` is
+`unknown command: '/'`).
 
 - `ADDR` may be empty (whole file), a line number, `/re/`, or any range sed
   accepts (`A,B`, `A,+N`, `$`, …). The list and preview call `sed -n "ADDR{=;p}"`
@@ -88,7 +104,14 @@ typed and the text before it is the *prefix* (`${q##*,}`).
   every addressed line numbered, with what `s/PAT/…/` would replace shown in red
   (`sed -n "ADDR{=;s/PAT/<red>&<reset>/;p}"`). An empty query shows the addressed
   lines plain, because `s//…/` would mean "the last regex" and error.
-- An empty pattern on enter aborts.
+- **Ctrl-T** toggles the mode, and the **prompt is the mode**: `pattern> `
+  (substitute) or `print pattern> ` (print). There's no state file or variable.
+  Every command fzf runs reads `$FZF_PROMPT` and checks `== print*`.
+- In print mode the preview is `N lines print`, then only the lines that would
+  print (`sed -n "ADDR{/PAT/{=;s/PAT/<red>&<reset>/;p}}"`).
+- Enter returns `PROMPT<TAB>QUERY` (split with `IFS=$'\t' read -r`). In print mode
+  that's the end, and an empty query prints the whole address. In substitute mode
+  an empty query aborts, otherwise screen 3 follows.
 
 ### Screen 3: replacement
 
@@ -122,7 +145,16 @@ pick() { fzf --disabled --no-sort --layout=reverse --bind "enter:become(printf '
 - `enter:become(printf '%s\n' {q})`: fzf replaces itself with the printf, so the
   screen's result is the **query**, not the selected item. fzf 0.74 has no
   `print-query` action, and `accept-or-print-query` would return the focused
-  item whenever there is one.
+  item whenever there is one. Screen 2 overrides this bind (a later `--bind`
+  for the same key wins) with
+  `become(printf '%s\t%s\n' "$FZF_PROMPT" {q})`, so the mode comes out too.
+- `ctrl-t:transform(CMD)`: CMD prints a chain of actions for fzf to run
+  (`change-prompt(print pattern> )+refresh-preview`). The parentheses are in
+  CMD's *output*, so they don't clash with `transform(…)`'s own delimiters in the
+  bind string. Writing the toggle inline would need a different delimiter.
+- `$FZF_PROMPT` is exported by fzf to every command it runs. Bind strings write it
+  as `\"\$FZF_PROMPT\"`, so it's expanded by fzf's shell when the command runs,
+  not by `fsed-cmd` when the bind string is built.
 - Placeholders: fzf substitutes `{q}` and `{}` as single-quoted shell words, so
   `$(printf %q "$script_head"){q}/` concatenates into one argument. FILE and the
   address are baked into bind strings with `printf %q`.
@@ -145,7 +177,8 @@ fzf can only call out to commands, so `fsed-cmd` calls itself
 | `__addr-preview` | screen 1 preview | FILE Q ITEM |
 | `__pat-list` | screen 2 reload | FILE ADDR Q |
 | `__pat-tab` | screen 2 tab | ITEM |
-| `__pat-preview` | screen 2 preview | FILE ADDR Q |
+| `__pat-preview` | screen 2 preview | FILE ADDR Q PROMPT |
+| `__pat-toggle` | screen 2 ctrl-t | PROMPT |
 | `__rep-preview` | screen 3 preview | FILE SCRIPT |
 
 Each one is plain stdin/stdout, so it can be tested without fzf (see Testing).
@@ -162,7 +195,7 @@ Built and tested on jke-desktop (Ubuntu, Linux 6.8):
 | GNU diffutils | 3.10 | `diff --color=always`, `--label` |
 | awk | mawk | POSIX-only use; any awk works |
 | paste, wc, head, realpath | coreutils | `realpath` for `self` |
-| fzf | 0.74.2 | `--disabled`, `start`/`change` events, `reload`, `transform-query`, `become`, `first` |
+| fzf | 0.74.2 | `--disabled`, `start`/`change` events, `reload`, `transform-query`, `transform`, `change-prompt`, `refresh-preview`, `become`, `first`, `$FZF_PROMPT` |
 
 Inside a Claude Code Bash tool shell, `grep --version` reports **ugrep**. That
 shell defines a `grep` *function* that forwards to ugrep. `fsed-cmd` is a
@@ -180,8 +213,9 @@ mean `gsed`/brew bash or a `sed` shim. That hasn't been done.
   at the comma, so the token is `b` (line mode) and sed reports
   `unterminated address regex`. Fixing it needs a real address tokenizer that
   tracks `/…/` and `\/`.
-- Only one `s` command with no flags. No `g`, `I`, a different delimiter, or
-  multiple commands. The final prompt is editable, so add those there.
+- Only one `s` command with no flags, or one filtered `p`. No `g`, `I`, a
+  different delimiter, or multiple commands. The final prompt is editable, so add
+  those there.
 - Picking a word gives a whole-token match (`weight:`, `24.0`). To match part of
   a token, type the regex.
 - Suggestions in word mode are capped only by the file. A huge file means a long
@@ -197,7 +231,9 @@ F=some.yaml
 fsed-cmd __addr-list "$F" '/comply_with_siren:/,/weight:/'    # N:text of the range
 fsed-cmd __addr-list "$F" '/comply_with_siren:/,/weig'        # word suggestions after the start
 fsed-cmd __addr-tab '/comply_with_siren:/,/weig' 'weight:'    # -> /comply_with_siren:/,/weight:/
-fsed-cmd __pat-preview "$F" '622,625' ' .0'                   # "0 lines match" for the original bug
+fsed-cmd __pat-preview "$F" '622,625' ' .0' 'pattern> '       # "0 lines match" for the original bug
+fsed-cmd __pat-preview "$F" '622,625' 'weight' 'print pattern> '  # "N lines print" + only those lines
+fsed-cmd __pat-toggle 'pattern> '                             # -> change-prompt(print pattern> )+refresh-preview
 fsed-cmd __rep-preview "$F" '622,625 s/\(weight:\) .*/\1 36.0/'
 ```
 
@@ -210,6 +246,11 @@ k -l '/comply_with'; k Tab; k -l ',/weig'; k Down; k Tab; k Enter
 k -l '\(weight:\) .*'; k Enter; k -l '\1 36.0'; k Enter
 cat "$DIR/out.txt"; tmux kill-session -t fsedtest
 ```
+
+Print mode is the same session with `k C-t` before the pattern screen's Enter,
+and no replacement steps. On a file of `x1 START x2 y x3 END x4` lines, address
+`/START/,/END/` + `x` + `C-t` should give `sed -n '/START/,/END/{/x/p}' r.txt`.
+Pressing `C-t` twice should be back to substitute.
 
 `tmux capture-pane -pt fsedtest` between steps shows each screen. To test the `fsed`
 function (prefill + history) start the session with
