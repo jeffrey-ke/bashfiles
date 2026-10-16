@@ -1,0 +1,135 @@
+#!/usr/bin/env bash
+# fsed-cmd -- build a `sed -i` command for FILE in three fzf screens and print it.
+#
+# Usage:
+#   fsed-cmd FILE
+#
+# The fsed shell function (.functions.sh) wraps this: it puts the command on an
+# editable prompt, so enter runs it and it lands in history.
+#
+# Screens, in order: address, search pattern, replacement. In each:
+#   enter   accept what is typed
+#   tab     replace what is typed with the focused suggestion
+#   esc     quit, printing nothing
+#
+# Address: digits are a line number; /re lists words from the file that match re;
+# `,` starts the end of a range. Otherwise the list shows the lines the address
+# selects, as computed by sed itself. Pattern: words from the addressed lines that
+# match what is typed; the preview marks what s/// would hit on each line.
+# Replacement: the preview is the diff the command would make.
+#
+# Words picked with tab are escaped to match literally; typed text is raw sed BRE,
+# so a typed `/` must be written `\/`.
+set -euo pipefail
+
+esc=$'\033'
+# A finished /re/ address: the closing slash is not itself escaped.
+complete_re='^/(.*[^\\])?/$'
+
+words() { sed -n "${2:-}p" "$1" | grep -oE '[^[:space:]]+' | awk '!seen[$0]++'; }
+
+escape_bre() { sed 's/[][\/.*^$]/\\&/g' <<<"$1"; }
+
+# The address part being typed: after the last comma.
+in_word_mode() { [[ $1 == /* && ! $1 =~ $complete_re ]]; }
+
+addr_list() {
+	local file=$1 q=$2 token=${2##*,} start out
+	if in_word_mode "$token"; then
+		# A range end is searched for after the range start, so suggest from there.
+		start=
+		[[ $q == *,* ]] && start=$(sed -n "${q%,*}=" "$file" 2>/dev/null | head -1)
+		words "$file" "${start:+$((start + 1)),\$}" | grep -- "${token#/}" 2>/dev/null || true
+		return
+	fi
+	out=$(sed -n "${q%,}{=;p}" "$file" 2>&1) || { echo "$out"; return; }
+	paste -d: - - <<<"$out"
+}
+
+addr_tab() {
+	local q=$1 item=$2 token=${1##*,}
+	in_word_mode "$token" || { echo "$q"; return; }
+	echo "${q:0:${#q}-${#token}}/$(escape_bre "$item")/"
+}
+
+addr_preview() {
+	local file=$1 q=$2 item=$3 center
+	if in_word_mode "${q##*,}"; then
+		grep -nF --color=always -- "$item" "$file" | head -200
+		return
+	fi
+	center=${item%%:*}
+	[[ $center =~ ^[0-9]+$ ]] || center=1
+	sed -n "${q%,}=" "$file" 2>/dev/null |
+		awk -v c="$center" -v on="${esc}[1;32m" -v off="${esc}[0m" '
+			NR == FNR { hit[$1] = 1; next }
+			FNR > c + 200 { exit }
+			FNR >= c - 5 { printf "%s%5d %s%s\n", hit[FNR] ? on : "", FNR, $0, off }
+		' - "$file"
+}
+
+pat_list() {
+	local file=$1 addr=$2 q=$3
+	words "$file" "$addr" | grep -- "$q" 2>/dev/null || true
+}
+
+pat_preview() {
+	local file=$1 addr=$2 q=$3 out
+	if [[ -z $q ]]; then
+		sed -n "${addr}{=;p}" "$file" | paste -d' ' - -
+		return
+	fi
+	out=$(sed -n "${addr}{=;s/${q}/${esc}[1;31m&${esc}[0m/;p}" "$file" 2>&1) || { echo "$out"; return; }
+	echo "$(sed -n "${addr}{/${q}/p}" "$file" | wc -l) lines match"
+	paste -d' ' - - <<<"$out"
+}
+
+rep_preview() {
+	local file=$1 script=$2 err
+	if ! err=$(sed -n "$script" "$file" 2>&1 >/dev/null); then
+		echo "$err"
+		return
+	fi
+	diff --color=always -U1 --label "$file" --label "$file (new)" "$file" <(sed "$script" "$file") &&
+		echo "(no change)" || true
+}
+
+case ${1:-} in
+__addr-list) addr_list "$2" "$3"; exit ;;
+__addr-tab) addr_tab "$2" "$3"; exit ;;
+__addr-preview) addr_preview "$2" "$3" "$4"; exit ;;
+__pat-list) pat_list "$2" "$3" "$4"; exit ;;
+__pat-tab) escape_bre "$2"; exit ;;
+__pat-preview) pat_preview "$2" "$3" "$4"; exit ;;
+__rep-preview) rep_preview "$2" "$3"; exit ;;
+esac
+
+[[ $# -eq 1 && -f $1 ]] || { echo "usage: fsed-cmd FILE" >&2; exit 2; }
+file=$1
+self=$(printf %q "$(realpath "$0")")
+qfile=$(printf %q "$file")
+pick() { fzf --disabled --no-sort --layout=reverse --bind "enter:become(printf '%s\n' {q})" "$@"; }
+
+addr=$(: | pick --prompt 'address> ' \
+	--header "$file -- digits: line, /re: words, tab: complete" \
+	--bind "start,change:reload($self __addr-list $qfile {q})+first" \
+	--bind "tab:transform-query($self __addr-tab {q} {})" \
+	--preview "$self __addr-preview $qfile {q} {}")
+addr=${addr%,}
+
+qaddr=$(printf %q "$addr")
+pat=$(: | pick --prompt 'pattern> ' \
+	--header "sed '${addr:+$addr }s/' -- tab: complete" \
+	--bind "start,change:reload($self __pat-list $qfile $qaddr {q})+first" \
+	--bind "tab:transform-query($self __pat-tab {})" \
+	--preview "$self __pat-preview $qfile $qaddr {q}")
+[[ -n $pat ]] || { echo "fsed-cmd: empty pattern" >&2; exit 1; }
+
+script_head="${addr:+$addr }s/$pat/"
+rep=$(: | pick --prompt 'replacement> ' \
+	--header "sed '$script_head'" \
+	--preview "$self __rep-preview $qfile $(printf %q "$script_head"){q}/" \
+	--preview-window up,90%)
+
+script="$script_head$rep/"
+printf "sed -i '%s' %s\n" "${script//\'/\'\\\'\'}" "$qfile"

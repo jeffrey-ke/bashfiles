@@ -1502,3 +1502,13 @@ bazel() { mgbazel bazel "$@"; }
 _sw="$HOME/dotfiles/claude-skills/previewing-changes-in-worktrees/scripts/sparse_worktree.sh"
 [ -f "$_sw" ] && source "$_sw"
 unset _sw
+
+# fsed FILE: pick a sed -i edit for FILE in fzf (bin/fsed-cmd), then prefill it on an
+# editable prompt -- enter runs it and adds it to history, ctrl-c drops it.
+fsed() {
+	local cmd
+	cmd=$(fsed-cmd "$@") || return
+	read -r -e -i "$cmd" -p '$ ' cmd || return
+	history -s "$cmd"
+	eval "$cmd"
+}
