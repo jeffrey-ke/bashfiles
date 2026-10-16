@@ -1,6 +1,6 @@
 ---
 name: typeset-math
-description: Typesets math: writes the answer as markdown with LaTeX, renders the equations locally, and opens them in a tmux split beside the chat. Use when a reply needs equations, derivations or proofs, or for "typeset this", "show me the math".
+description: Typesets math as LaTeX in a tmux split beside the chat. Use when a reply needs equations or derivations, or "show me the math".
 allowed-tools: Bash(mdmath *), Bash(tview *)
 ---
 
@@ -15,11 +15,15 @@ Skip this for a stray symbol or two: inline Unicode in chat is fine for that.
 
 Write the full answer to `<scratchpad>/math/<slug>.md`:
 
-- Display math in `$$ … $$` (or `\[ … \]`), inline math in `$ … $`.
+- Put all math in display blocks (`$$ … $$` or `\[ … \]`): mdmath turns inline `$…$` and
+  markdown tables into Unicode, and only display blocks are typeset.
+- Write tables as display `array`s.
+- Make any sentence that relies on a symbol its own small display equation.
 - amsmath and amssymb are loaded, plus `\bm`. `align*`, `gather*`, `cases`, `pmatrix` and
   `\operatorname` all work. Write the LaTeX itself in ASCII, with no Unicode symbols inside
   it.
 - Prose, headings, lists and code blocks render through glow.
+- For an explanation (not just a formula), follow the notating-math-naturally skill.
 
 ## 2. Check it compiles
 
