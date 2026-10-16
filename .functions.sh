@@ -540,6 +540,28 @@ cc() {
 	cd "$1" && claude
 }
 
+# Usage: <command> |& clauderead [-i] <words...>   e.g. `make |& clauderead /sb I ran this`
+# xargs-shaped: the args are joined with spaces and stdin is appended after a
+# blank line; stdin echoes live while it is read. By default the prompt goes to
+# a one-shot `claude -p`, fed on stdin so it has no size cap; tools that need
+# permission are refused there unless settings allow them.
+# -i opens an interactive session on the prompt instead. That prompt is an argv
+# string, capped at 128 KiB (MAX_ARG_STRLEN); past that the exec fails with
+# "Argument list too long". claude's stdin is the pipe, hence the /dev/tty.
+clauderead() {
+	if [[ $1 == -i ]]; then
+		shift
+		local input
+		input=$(tee /dev/tty)
+		claude "$*"$'\n\n'"$input" </dev/tty
+	else
+		{
+			printf '%s\n\n' "$*"
+			tee /dev/tty
+		} | claude -p
+	fi
+}
+
 # scp a file off another host into this machine's papers directory. Lived in
 # machines/jeffpro-3.sh with the destination hardcoded, while `alias ot='obgrab tesu'`
 # sat in the shared .bash_aliases — so the alias was dead on every other machine. The
